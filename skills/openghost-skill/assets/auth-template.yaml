@@ -1,0 +1,24 @@
+auth_type: form
+roles:
+  - name: user_a
+    privilege: standard
+    login_url: https://example.com/login
+    username_env: OPENGHOST_USER_A_USERNAME
+    password_env: OPENGHOST_USER_A_PASSWORD
+  - name: user_b
+    privilege: standard
+    login_url: https://example.com/login
+    username_env: OPENGHOST_USER_B_USERNAME
+    password_env: OPENGHOST_USER_B_PASSWORD
+  - name: admin
+    privilege: admin
+    login_url: https://example.com/login
+    username_env: OPENGHOST_ADMIN_USERNAME
+    password_env: OPENGHOST_ADMIN_PASSWORD
+tokens:
+  bearer_env: OPENGHOST_BEARER_TOKEN
+  api_key_header: X-API-Key
+  api_key_env: OPENGHOST_API_KEY
+cookies:
+  session_cookie_env: OPENGHOST_SESSION_COOKIE
+notes: Use only the auth methods approved for the engagement.

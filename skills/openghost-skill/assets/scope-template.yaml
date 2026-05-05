@@ -1,0 +1,18 @@
+engagement_id: example-webapp-pentest
+target_url: https://example.com
+allowed_hosts:
+  - example.com
+  - "*.example.com"
+exclusions:
+  paths:
+    - /logout
+    - /billing/live-charge
+  hosts: []
+rate_limits:
+  requests_per_second: 5
+  max_concurrent_requests: 3
+allowed_write_actions:
+  - create_test_record
+  - update_own_profile
+oob_callback: https://callback.example.test
+notes: Replace example values before use.
