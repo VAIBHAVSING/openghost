@@ -1,104 +1,150 @@
 # Tooling Reference
 
-This skill exposes one public interface to the agent: `scripts/openghost.sh`. The launcher is responsible for starting the sandbox, enforcing safety controls, and routing commands to the Docker runtime. The underlying implementation can use direct `docker exec` or an internal API server; the agent should not depend on implementation details.
+The agent-facing interface is `openghost`. The launcher starts a Docker sandbox and executes every tool inside that container. Do not run offensive tooling directly on the host.
 
-## Launcher Commands
-
-```bash
-scripts/openghost.sh preflight
-scripts/openghost.sh start
-scripts/openghost.sh status
-scripts/openghost.sh stop
-```
-
-Execution commands:
+Before the first command, make sure the launcher directory is on `PATH`:
 
 ```bash
-scripts/openghost.sh exec-tool <TOOL> [args...]
-scripts/openghost.sh exec-bash '<COMMAND>'
-scripts/openghost.sh exec-python '<SCRIPT>'
+export PATH="$PWD/skills:$PWD/skills/openghost-skill:$PATH"
 ```
 
-Engagement commands:
+The `skills/openghost` file is the repository-level CLI shim. If the skill is installed without that shim, `skills/openghost-skill/openghost` exposes the same `openghost` command when `skills/openghost-skill` is on `PATH`.
+
+## Sandbox Commands
 
 ```bash
-scripts/openghost.sh init --url <TARGET_URL> --out ./engagements/<name>
-scripts/openghost.sh save-finding --dir ./engagements/<name> --title <title> --severity <severity>
-scripts/openghost.sh get-findings --dir ./engagements/<name>
-scripts/openghost.sh save-todo --dir ./engagements/<name> --task <task> --module <module> --priority <priority>
-scripts/openghost.sh get-todos --dir ./engagements/<name>
-scripts/openghost.sh update-todo --dir ./engagements/<name> --id <id> --status <status>
-scripts/openghost.sh generate-report --dir ./engagements/<name>
+openghost sandbox start
+openghost sandbox status
+openghost sandbox stop
+openghost sandbox logs
+openghost sandbox pull
+openghost sandbox update
+openghost sandbox shell
 ```
 
-Environment:
+The launcher pulls `ghcr.io/openghost/openghost-sandbox:latest` by default when the image is missing. Set `OPENGHOST_IMAGE` to override the image. Normal skill users should not build a Dockerfile locally; maintainers build and publish the sandbox from the repo's developer-only Docker context.
+
+## Execution Commands
 
 ```bash
-export OPENGHOST_SCOPE=./engagements/<name>/scope.yaml
-export OPENGHOST_RATE_LIMIT=5
-export OPENGHOST_IMAGE=openghost-runtime:latest
-export OPENGHOST_CONTAINER=openghost-runtime
+openghost run <TOOL> [args...]
+openghost bash '<COMMAND>'
+openghost python code '<SCRIPT>'
+openghost python file ./path/to/script.py -- arg1 arg2
+openghost python repl
 ```
 
-## Safety Pipeline
+Compatibility aliases still work:
 
-All tool execution must pass through the launcher. It provides:
+```bash
+openghost exec-tool <TOOL> [args...]
+openghost exec-bash '<COMMAND>'
+openghost exec-python '<SCRIPT>'
+```
 
-- command allowlist for named tools
-- command blocklist for dangerous host/system operations
-- scope checking from `OPENGHOST_SCOPE`
-- rate limiting per target
-- circuit breaker behavior for repeated failures
-- output truncation for very large stdout/stderr
-- Docker sandbox isolation
+## Engagement Commands
 
-## Tool Catalog
+```bash
+openghost engagement init --url <TARGET_URL> --name <name>
+openghost finding add --title <title> --severity <severity>
+openghost finding list
+openghost todo add --task <task> --module <module> --priority <priority>
+openghost todo list
+openghost todo update --id <id> --status <status>
+openghost report generate
+```
+
+OpenGhost stores state under `.openghost/` by default. The latest initialized engagement is active, so `finding`, `todo`, and `report` commands can omit `--dir`. Use `--engagement <name>` to target another engagement or `--dir <path>` for legacy/custom paths.
+
+## Environment
+
+```bash
+export OPENGHOST_IMAGE=ghcr.io/openghost/openghost-sandbox:latest
+export OPENGHOST_CONTAINER=openghost-sandbox
+export OPENGHOST_WORKSPACE="$PWD"
+export OPENGHOST_HOME="$PWD/.openghost"
+export OPENGHOST_SCOPE=.openghost/engagements/<name>/scope.yaml
+```
+
+Developer-only local image builds are explicit opt-in:
+
+```bash
+OPENGHOST_BUILD=1 \
+  OPENGHOST_IMAGE=openghost-sandbox:dev \
+  OPENGHOST_DOCKERFILE=developer/docker/Dockerfile \
+  OPENGHOST_BUILD_CONTEXT=developer/docker \
+  openghost sandbox start
+```
+
+## Storage Layout
+
+```text
+.openghost/
+  config.json
+  current
+  cache/
+  tmp/
+  engagements/<name>/
+    engagement.json
+    scope.yaml
+    findings.json
+    todos.json
+    notes/
+    evidence/http/
+    evidence/raw/
+    evidence/screenshots/
+    reports/
+    artifacts/
+    scripts/
+    browser/
+    runs/
+```
+
+## Installed Tool Catalog
 
 ### Reconnaissance and Scanning
 
 | Tool | Example | Purpose |
 |---|---|---|
-| `nmap` | `scripts/openghost.sh exec-tool nmap -sV -sC <target>` | ports, services, NSE |
-| `nikto` | `scripts/openghost.sh exec-tool nikto -h https://<target>` | web server checks |
-| `nuclei` | `scripts/openghost.sh exec-tool nuclei -u https://<target>` | template-based vuln scan |
-| `httpx` | `scripts/openghost.sh exec-bash 'subfinder -d <domain> -silent | httpx -silent -status-code -title -tech-detect'` | probe live hosts |
-| `subfinder` | `scripts/openghost.sh exec-tool subfinder -d <domain> -silent` | passive subdomains |
-| `katana` | `scripts/openghost.sh exec-tool katana -u https://<target> -d 3 -jc -silent` | crawling |
-| `testssl.sh` | `scripts/openghost.sh exec-tool testssl.sh --quiet https://<target>` | TLS assessment |
-| `wafw00f` | `scripts/openghost.sh exec-tool wafw00f https://<target>` | WAF fingerprinting |
+| `nmap` | `openghost run nmap -sV -sC <target>` | Ports, services, NSE scripts |
+| `nikto` | `openghost run nikto -h https://<target>` | Web server checks |
+| `nuclei` | `openghost run nuclei -u https://<target>` | Template-based vulnerability scan |
+| `httpx` | `openghost bash 'subfinder -d <domain> -silent | httpx -silent -status-code -title -tech-detect'` | Probe live hosts |
+| `subfinder` | `openghost run subfinder -d <domain> -silent` | Passive subdomain discovery |
+| `dnsx` | `openghost bash 'dnsx -d <domain> -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -silent'` | DNS probing |
+| `katana` | `openghost run katana -u https://<target> -d 3 -jc -silent` | Crawling |
+| `testssl.sh` | `openghost run testssl.sh --quiet https://<target>` | TLS assessment |
+| `wafw00f` | `openghost run wafw00f https://<target>` | WAF fingerprinting |
 
 ### Discovery and Fuzzing
 
 | Tool | Example | Purpose |
 |---|---|---|
-| `ffuf` | `scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,401,403` | directory/API fuzzing |
-| `dirsearch` | `scripts/openghost.sh exec-tool dirsearch -u https://<target>` | path discovery |
-| `arjun` | `scripts/openghost.sh exec-tool arjun -u https://<target>/api/search` | hidden parameter discovery |
-| `linkfinder` | `scripts/openghost.sh exec-tool linkfinder -i https://<target>/static/app.js -o cli` | JS endpoint extraction |
+| `ffuf` | `openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,401,403` | Directory/API fuzzing |
+| `dirsearch` | `openghost run dirsearch -u https://<target>` | Path discovery |
+| `arjun` | `openghost run arjun -u https://<target>/api/search` | Hidden parameter discovery |
+| `linkfinder` | `openghost run linkfinder -i https://<target>/static/app.js -o cli` | JavaScript endpoint extraction |
 
-### Injection and Exploitation Validation
+### Injection and Auth Validation
 
 | Tool | Example | Purpose |
 |---|---|---|
-| `sqlmap` | `scripts/openghost.sh exec-tool sqlmap -u "https://<target>/?id=1" --batch` | SQLi validation |
-| `jwt_tool` | `scripts/openghost.sh exec-tool jwt_tool <JWT>` | JWT analysis/attacks |
-| `hashcat` | `scripts/openghost.sh exec-bash 'hashcat -m 16500 jwt.txt wordlist.txt'` | hash/JWT secret cracking |
-| `wscat` | `scripts/openghost.sh exec-bash 'wscat -c wss://<target>/ws'` | WebSocket testing |
-| `curl` | `scripts/openghost.sh exec-bash 'curl -s -i https://<target>/api'` | manual HTTP |
-| `jq` | `scripts/openghost.sh exec-bash 'curl -s https://<target>/api | jq .'` | JSON parsing |
+| `sqlmap` | `openghost run sqlmap -u "https://<target>/?id=1" --batch` | SQL injection validation |
+| `jwt_tool` | `openghost run jwt_tool <JWT>` | JWT analysis and attacks |
+| `hashcat` | `openghost run hashcat -m 16500 jwt.txt /usr/share/wordlists/rockyou.txt --quiet` | JWT/HMAC secret cracking, CPU default |
+| `curl` | `openghost bash 'curl -s -i https://<target>/api'` | Manual HTTP |
+| `jq` | `openghost bash 'curl -s https://<target>/api | jq .'` | JSON parsing |
 
-### Browser and API Runtime
+### Browser and Protocol Testing
 
-The sandbox may expose Playwright-managed Chromium and/or an internal API server. The agent-facing contract remains `scripts/openghost.sh`. If browser commands are available in the launcher, use them for:
+| Tool | Example | Purpose |
+|---|---|---|
+| `chromium` | `openghost python file .openghost/engagements/<name>/scripts/browser.py` | Browser validation through scripts |
+| `playwright` | Python package available inside sandbox | DOM XSS, screenshots, OAuth flows, SPA exploration |
+| `websocat` | `openghost run websocat wss://<target>/ws` | WebSocket testing |
+| `grpcurl` | `openghost run grpcurl -plaintext <target>:<port> list` | gRPC discovery/testing |
 
-- DOM XSS validation
-- OAuth/OIDC/SAML redirect flows
-- authenticated crawling
-- screenshots for evidence
-- clickjacking/CSRF PoCs
-- SPA route exploration
-
-If browser-specific commands are not available yet, use `exec-bash`/`exec-python` inside the sandbox to run approved browser scripts.
+OWASP ZAP and Java are intentionally not included in the default sandbox to keep the image lighter. Use `nuclei`, `nikto`, `ffuf`, `katana`, `curl`, and browser scripts for the default workflow.
 
 ## Wordlists
 
@@ -116,47 +162,34 @@ Common paths:
 /usr/share/wordlists/rockyou.txt
 ```
 
+`rockyou.txt` is a symlink to `10k-most-common.txt` in the default image. This keeps the image smaller while still supporting safe JWT weak-secret checks. Mount a larger wordlist under `/workspace` when explicitly authorized.
+
 ## Command Patterns
 
 ### Save Raw Evidence
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -i https://<target>/api/users/1' > ./engagements/<name>/evidence/http/users-1.txt
+openghost bash 'curl -s -i https://<target>/api/users/1' > .openghost/engagements/<name>/evidence/http/users-1.txt
 ```
 
 ### Authenticated Curl
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -i -H "Authorization: Bearer <TOKEN>" https://<target>/api/me'
+openghost bash 'curl -s -i -H "Authorization: Bearer <TOKEN>" https://<target>/api/me'
 ```
 
 ### JSON Request
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -i -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"name\":\"test\"}" https://<target>/api/profile'
+openghost bash 'curl -s -i -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"name\":\"test\"}" https://<target>/api/profile'
 ```
 
-### Parallel-Safe Loops
-
-Use conservative loops with clear bounds and rate limits:
+### Browser Script
 
 ```bash
-scripts/openghost.sh exec-bash 'for p in /swagger.json /openapi.json /graphql; do echo -n "$p "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
+openghost python file .openghost/engagements/<name>/scripts/browser-check.py
 ```
 
-## When to Use Raw `exec-bash`
+## When To Use Raw Bash
 
-Use `exec-bash` for:
-
-- curl loops
-- custom one-off parsing
-- chained utilities inside the sandbox
-- tool options not covered by named wrappers
-
-Avoid `exec-bash` for:
-
-- destructive filesystem commands
-- host operations
-- unbounded loops
-- unauthenticated brute force
-- broad out-of-scope network scans
+Use `openghost bash` for curl loops, custom parsing, and tool chains inside the sandbox. Avoid destructive filesystem commands, unbounded loops, broad credential attacks, and out-of-scope scans.

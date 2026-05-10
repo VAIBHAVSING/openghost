@@ -142,7 +142,7 @@ Specific implementation guidance.
 ## Save Findings
 
 ```bash
-scripts/openghost.sh save-finding --dir ./engagements/<name> \
+openghost finding add \
   --title "IDOR allows access to other users' invoices" \
   --severity high \
   --module access-control \
@@ -191,7 +191,7 @@ Controls that worked well.
 ## Report Generation
 
 ```bash
-scripts/openghost.sh generate-report --dir ./engagements/<name>
+openghost report generate
 ```
 
 Review generated reports manually before delivery.

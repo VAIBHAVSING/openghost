@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LAUNCHER="${SCRIPT_DIR}/openghost-skill.sh"
+LAUNCHER="${SCRIPT_DIR}/openghost.sh"
 
 required_tools=(
   bash
@@ -10,10 +10,10 @@ required_tools=(
   http
   jq
   python3
-  git
   nmap
   ffuf
   nuclei
+  dnsx
   subfinder
   httpx
   katana
@@ -21,35 +21,32 @@ required_tools=(
   nikto
   dirsearch
   jwt_tool
-  newman
-  wscat
-  mitmproxy
   wafw00f
   testssl.sh
   linkfinder
   arjun
+  hashcat
+  chromium
+  websocat
+  grpcurl
 )
 
 missing=()
 
-"${LAUNCHER}" start >/dev/null
+"${LAUNCHER}" sandbox start >/dev/null
 
 for tool in "${required_tools[@]}"; do
-  if ! "${LAUNCHER}" exec-bash "command -v ${tool}" >/dev/null 2>&1; then
+  if ! "${LAUNCHER}" bash "command -v ${tool}" >/dev/null 2>&1; then
     missing+=("${tool}")
   fi
 done
 
-if ! "${LAUNCHER}" exec-bash 'test -d /opt/wordlists/SecLists' >/dev/null 2>&1; then
-  missing+=("/opt/wordlists/SecLists")
+if ! "${LAUNCHER}" bash 'test -f /usr/share/seclists/Discovery/Web-Content/common.txt' >/dev/null 2>&1; then
+  missing+=("selected SecLists wordlists")
 fi
 
-if ! "${LAUNCHER}" exec-bash 'test -d /opt/nuclei-templates' >/dev/null 2>&1; then
+if ! "${LAUNCHER}" bash 'test -d /opt/nuclei-templates' >/dev/null 2>&1; then
   missing+=("/opt/nuclei-templates")
-fi
-
-if ! "${LAUNCHER}" exec-tool zap-version >/dev/null 2>&1; then
-  missing+=("OWASP ZAP API")
 fi
 
 if ((${#missing[@]} > 0)); then

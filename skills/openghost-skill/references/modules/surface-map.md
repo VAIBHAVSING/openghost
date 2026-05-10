@@ -11,7 +11,7 @@ Covers: scope-safe reconnaissance, host discovery, port scanning, web crawling, 
 
 ## Output Artifacts
 
-Save these under `./engagements/<name>/`:
+Save these under `.openghost/engagements/<name>/`:
 
 - `notes/surface-map.md` - hosts, technologies, endpoints, auth boundaries
 - `evidence/raw/nmap-*.txt` - port scan output
@@ -27,28 +27,28 @@ Save these under `./engagements/<name>/`:
 Use this only for explicitly scoped hosts or IP ranges.
 
 ```bash
-scripts/openghost.sh exec-tool nmap -sn <target>
-scripts/openghost.sh exec-tool nmap -sn -PS22,80,443 <target>
+openghost run nmap -sn <target>
+openghost run nmap -sn -PS22,80,443 <target>
 ```
 
 ### Web-Focused Port Scans
 
 ```bash
 # Top ports with service and default scripts
-scripts/openghost.sh exec-tool nmap -sV -sC -T4 <target>
+openghost run nmap -sV -sC -T4 <target>
 
 # Common web and app ports
-scripts/openghost.sh exec-tool nmap -sV -sC -p 80,443,8080,8443,3000,5000,5173,8000,8008,8081,9000,9443 <target>
+openghost run nmap -sV -sC -p 80,443,8080,8443,3000,5000,5173,8000,8008,8081,9000,9443 <target>
 
 # Full TCP port scan when authorized
-scripts/openghost.sh exec-tool nmap -sV -p- --min-rate 1000 <target>
+openghost run nmap -sV -p- --min-rate 1000 <target>
 ```
 
 ### Web NSE Scripts
 
 ```bash
-scripts/openghost.sh exec-tool nmap --script http-title,http-headers,http-methods,http-enum -p 80,443 <target>
-scripts/openghost.sh exec-tool nmap --script vuln -p 80,443 <target>
+openghost run nmap --script http-title,http-headers,http-methods,http-enum -p 80,443 <target>
+openghost run nmap --script vuln -p 80,443 <target>
 ```
 
 Record service names, versions, redirects, HTTP methods, TLS-only services, and unexpected management interfaces.
@@ -58,8 +58,8 @@ Record service names, versions, redirects, HTTP methods, TLS-only services, and 
 ### Nikto
 
 ```bash
-scripts/openghost.sh exec-tool nikto -h https://<target>
-scripts/openghost.sh exec-tool nikto -h https://<target> -Tuning 1234
+openghost run nikto -h https://<target>
+openghost run nikto -h https://<target> -Tuning 1234
 ```
 
 Tuning notes:
@@ -77,13 +77,13 @@ Only enumerate domains explicitly included in scope.
 
 ```bash
 # Passive subdomain discovery
-scripts/openghost.sh exec-tool subfinder -d <domain> -silent
+openghost run subfinder -d <domain> -silent
 
 # Probe discovered hosts
-scripts/openghost.sh exec-bash 'subfinder -d <domain> -silent | httpx -silent -status-code -title -tech-detect'
+openghost bash 'subfinder -d <domain> -silent | httpx -silent -status-code -title -tech-detect'
 
 # DNS brute force when authorized
-scripts/openghost.sh exec-bash 'dnsx -d <domain> -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -silent'
+openghost bash 'dnsx -d <domain> -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -silent'
 ```
 
 High-value subdomain keywords:
@@ -96,13 +96,13 @@ admin, api, auth, beta, dev, staging, test, uat, internal, vpn, sso, idp, grafan
 
 ```bash
 # Common DNS records
-scripts/openghost.sh exec-bash 'for t in A AAAA CNAME MX TXT NS SOA; do echo "== $t =="; dig +short <domain> $t; done'
+openghost bash 'for t in A AAAA CNAME MX TXT NS SOA; do echo "== $t =="; dig +short <domain> $t; done'
 
 # Zone transfer check
-scripts/openghost.sh exec-bash 'for ns in $(dig +short NS <domain>); do echo "== $ns =="; dig axfr <domain> @$ns; done'
+openghost bash 'for ns in $(dig +short NS <domain>); do echo "== $ns =="; dig axfr <domain> @$ns; done'
 
 # SPF/DMARC discovery for email-related attack surface
-scripts/openghost.sh exec-bash 'dig +short TXT <domain>; dig +short TXT _dmarc.<domain>'
+openghost bash 'dig +short TXT <domain>; dig +short TXT _dmarc.<domain>'
 ```
 
 Zone transfer success is a confirmed finding if it exposes non-public hosts.
@@ -112,7 +112,7 @@ Zone transfer success is a confirmed finding if it exposes non-public hosts.
 Use CT logs to identify forgotten subdomains and certificate issuance mistakes.
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s "https://crt.sh/?q=%25.<domain>&output=json" | jq -r ".[ ].name_value" | tr "\n" "\n" | sort -u'
+openghost bash 'curl -s "https://crt.sh/?q=%25.<domain>&output=json" | jq -r ".[ ].name_value" | tr "\n" "\n" | sort -u'
 ```
 
 Validate discovered names with `httpx` before adding them to the live surface list. Do not test CT-discovered hosts unless they match scope.
@@ -122,22 +122,22 @@ Validate discovered names with `httpx` before adding them to the live surface li
 ### Crawling
 
 ```bash
-scripts/openghost.sh exec-tool katana -u https://<target> -d 3 -jc -silent
-scripts/openghost.sh exec-tool katana -u https://<target> -d 4 -jc -fx -silent
+openghost run katana -u https://<target> -d 3 -jc -silent
+openghost run katana -u https://<target> -d 4 -jc -fx -silent
 ```
 
 Use authenticated cookies where allowed:
 
 ```bash
-scripts/openghost.sh exec-tool katana -u https://<target> -H 'Cookie: session=<value>' -d 3 -jc -silent
+openghost run katana -u https://<target> -H 'Cookie: session=<value>' -d 3 -jc -silent
 ```
 
 ### Directory and File Discovery
 
 ```bash
-scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
-scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt -mc 200,301,302,401,403
-scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt -mc 200,401,403 -e .bak,.old,.conf,.config,.env,.sql,.zip,.tar.gz,.map
+openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
+openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt -mc 200,301,302,401,403
+openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt -mc 200,401,403 -e .bak,.old,.conf,.config,.env,.sql,.zip,.tar.gz,.map
 ```
 
 High-value paths:
@@ -166,13 +166,13 @@ Collect JavaScript URLs from crawl output and HTML source, then extract endpoint
 
 ```bash
 # Extract JS files from a page
-scripts/openghost.sh exec-bash 'curl -s https://<target> | grep -oE "https?://[^\"'"'"']+\.js|/[A-Za-z0-9_./-]+\.js" | sort -u'
+openghost bash 'curl -s https://<target> | grep -oE "https?://[^\"'"'"']+\.js|/[A-Za-z0-9_./-]+\.js" | sort -u'
 
 # Extract API-like paths from JS
-scripts/openghost.sh exec-bash 'curl -s https://<target>/static/app.js | grep -oE "(/[A-Za-z0-9_.-]+){2,}" | sort -u'
+openghost bash 'curl -s https://<target>/static/app.js | grep -oE "(/[A-Za-z0-9_.-]+){2,}" | sort -u'
 
 # Search for possible secrets
-scripts/openghost.sh exec-bash 'curl -s https://<target>/static/app.js | grep -iE "(api[_-]?key|secret|token|client[_-]?id|aws_|private|bearer|authorization)"'
+openghost bash 'curl -s https://<target>/static/app.js | grep -iE "(api[_-]?key|secret|token|client[_-]?id|aws_|private|bearer|authorization)"'
 ```
 
 Treat client-side secrets as leads. Validate whether they grant access before reporting.
@@ -182,13 +182,13 @@ Treat client-side secrets as leads. Validate whether they grant access before re
 ### Documentation Discovery
 
 ```bash
-scripts/openghost.sh exec-bash 'for p in /swagger.json /openapi.json /api-docs /docs /redoc /v2/api-docs /swagger/v1/swagger.json /.well-known/openapi.yaml /.well-known/openid-configuration /graphql /graphiql /service?wsdl; do echo -n "$p: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
+openghost bash 'for p in /swagger.json /openapi.json /api-docs /docs /redoc /v2/api-docs /swagger/v1/swagger.json /.well-known/openapi.yaml /.well-known/openid-configuration /graphql /graphiql /service?wsdl; do echo -n "$p: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
 ```
 
 ### Version Discovery
 
 ```bash
-scripts/openghost.sh exec-bash 'for v in v1 v2 v3 v4 beta old legacy internal; do echo -n "/api/$v/: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>/api/$v/; done'
+openghost bash 'for v in v1 v2 v3 v4 beta old legacy internal; do echo -n "/api/$v/: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>/api/$v/; done'
 ```
 
 ### Shadow API Indicators
@@ -204,13 +204,13 @@ scripts/openghost.sh exec-bash 'for v in v1 v2 v3 v4 beta old legacy internal; d
 
 ```bash
 # Headers and redirects
-scripts/openghost.sh exec-bash 'curl -s -I https://<target>'
+openghost bash 'curl -s -I https://<target>'
 
 # WAF/CDN fingerprint
-scripts/openghost.sh exec-tool wafw00f https://<target>
+openghost run wafw00f https://<target>
 
 # HTTP probing with technology detection
-scripts/openghost.sh exec-bash 'printf "https://<target>\n" | httpx -silent -status-code -title -tech-detect -cdn'
+openghost bash 'printf "https://<target>\n" | httpx -silent -status-code -title -tech-detect -cdn'
 ```
 
 Record frameworks, programming languages, CDN, WAF, reverse proxy, app server, auth provider, analytics tags, and front-end framework.

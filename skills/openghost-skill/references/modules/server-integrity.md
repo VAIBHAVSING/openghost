@@ -13,8 +13,8 @@ Covers: TLS/SSL assessment, certificate validation, HTTP security headers, cooki
 ### testssl.sh
 
 ```bash
-scripts/openghost.sh exec-tool testssl.sh --quiet --color 0 https://<target>
-scripts/openghost.sh exec-tool testssl.sh --fast --color 0 https://<target>
+openghost run testssl.sh --quiet --color 0 https://<target>
+openghost run testssl.sh --fast --color 0 https://<target>
 ```
 
 Check for:
@@ -30,8 +30,8 @@ Check for:
 ### Manual Certificate Checks
 
 ```bash
-scripts/openghost.sh exec-bash 'openssl s_client -connect <target>:443 -servername <target> </dev/null 2>/dev/null | openssl x509 -noout -text'
-scripts/openghost.sh exec-bash 'openssl s_client -connect <target>:443 -servername <target> -tls1_2 </dev/null'
+openghost bash 'openssl s_client -connect <target>:443 -servername <target> </dev/null 2>/dev/null | openssl x509 -noout -text'
+openghost bash 'openssl s_client -connect <target>:443 -servername <target> -tls1_2 </dev/null'
 ```
 
 Report TLS findings based on exploitability and policy. Missing preload alone is usually low/info. Expired certificates or plaintext downgrade paths can be higher.
@@ -39,7 +39,7 @@ Report TLS findings based on exploitability and policy. Missing preload alone is
 ## Security Headers
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I https://<target> | grep -iE "(strict-transport|content-security|x-frame|x-content-type|referrer-policy|permissions-policy|cross-origin|set-cookie|server|x-powered)"'
+openghost bash 'curl -s -I https://<target> | grep -iE "(strict-transport|content-security|x-frame|x-content-type|referrer-policy|permissions-policy|cross-origin|set-cookie|server|x-powered)"'
 ```
 
 Expected baseline:
@@ -61,7 +61,7 @@ Missing headers are usually low severity unless chained to a concrete exploit pa
 ## Cookie Integrity
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I https://<target>/login | grep -i set-cookie'
+openghost bash 'curl -s -I https://<target>/login | grep -i set-cookie'
 ```
 
 Check every sensitive cookie:
@@ -79,8 +79,8 @@ Check every sensitive cookie:
 ### Headers and Errors
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -i https://<target>/does-not-exist-$(date +%s) | head -80'
-scripts/openghost.sh exec-bash 'curl -s -i https://<target>/?debug=true | head -80'
+openghost bash 'curl -s -i https://<target>/does-not-exist-$(date +%s) | head -80'
+openghost bash 'curl -s -i https://<target>/?debug=true | head -80'
 ```
 
 Look for:
@@ -97,7 +97,7 @@ Look for:
 ### Sensitive Files
 
 ```bash
-scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt -mc 200,401,403 -e .bak,.old,.conf,.config,.env,.sql,.zip,.tar,.tar.gz,.7z,.map,.log
+openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt -mc 200,401,403 -e .bak,.old,.conf,.config,.env,.sql,.zip,.tar,.tar.gz,.7z,.map,.log
 ```
 
 High-risk files:
@@ -131,7 +131,7 @@ Evidence threshold:
 ## Management and Debug Interfaces
 
 ```bash
-scripts/openghost.sh exec-bash 'for p in /admin /console /debug /metrics /server-status /actuator /actuator/env /actuator/heapdump /phpinfo.php /_profiler /wp-admin /manager/html; do echo -n "$p "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
+openghost bash 'for p in /admin /console /debug /metrics /server-status /actuator /actuator/env /actuator/heapdump /phpinfo.php /_profiler /wp-admin /manager/html; do echo -n "$p "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
 ```
 
 Prioritize:
@@ -166,8 +166,8 @@ Do not run credential stuffing or large password attacks unless explicitly autho
 ## DNS and Email-Related Integrity
 
 ```bash
-scripts/openghost.sh exec-bash 'for t in A AAAA CNAME MX TXT NS SOA CAA; do echo "== $t =="; dig +short <domain> $t; done'
-scripts/openghost.sh exec-bash 'dig +short TXT _dmarc.<domain>; dig +short TXT <domain>'
+openghost bash 'for t in A AAAA CNAME MX TXT NS SOA CAA; do echo "== $t =="; dig +short <domain> $t; done'
+openghost bash 'dig +short TXT _dmarc.<domain>; dig +short TXT <domain>'
 ```
 
 Review:
@@ -185,8 +185,8 @@ Email posture is usually supporting context unless the engagement includes phish
 If source, container images, or package manifests are in scope:
 
 ```bash
-scripts/openghost.sh exec-bash 'grep -R "FROM\|image:" -n . 2>/dev/null | head'
-scripts/openghost.sh exec-bash 'find . -name package.json -o -name requirements.txt -o -name pom.xml -o -name go.mod 2>/dev/null | head'
+openghost bash 'grep -R "FROM\|image:" -n . 2>/dev/null | head'
+openghost bash 'find . -name package.json -o -name requirements.txt -o -name pom.xml -o -name go.mod 2>/dev/null | head'
 ```
 
 Validate dependency issues only when the vulnerable component is reachable in the deployed application.
