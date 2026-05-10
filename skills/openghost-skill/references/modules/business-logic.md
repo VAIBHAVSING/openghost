@@ -36,13 +36,13 @@ Test whether server trusts client-side values:
 
 ```bash
 # Negative quantity
-scripts/openghost.sh exec-bash 'curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"product_id\":1,\"quantity\":-1,\"price\":99.99}" https://<target>/api/cart/add'
+openghost bash 'curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"product_id\":1,\"quantity\":-1,\"price\":99.99}" https://<target>/api/cart/add'
 
 # Zero price
-scripts/openghost.sh exec-bash 'curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"product_id\":1,\"quantity\":1,\"price\":0}" https://<target>/api/cart/add'
+openghost bash 'curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"product_id\":1,\"quantity\":1,\"price\":0}" https://<target>/api/cart/add'
 
 # Modify checkout total
-scripts/openghost.sh exec-bash 'curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"cart_id\":123,\"total\":0.01}" https://<target>/api/checkout'
+openghost bash 'curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"cart_id\":123,\"total\":0.01}" https://<target>/api/checkout'
 ```
 
 Payload classes:
@@ -72,7 +72,7 @@ Test direct API calls and stale tokens:
 Example:
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -H "Authorization: Bearer <TOKEN_AFTER_PASSWORD_BEFORE_MFA>" https://<target>/api/dashboard'
+openghost bash 'curl -s -H "Authorization: Bearer <TOKEN_AFTER_PASSWORD_BEFORE_MFA>" https://<target>/api/dashboard'
 ```
 
 ## Coupon, Reward, Referral, and Credit Abuse
@@ -134,7 +134,7 @@ print("successes", sum(1 for status, _ in results if status == 200))
 Run through the sandbox:
 
 ```bash
-scripts/openghost.sh exec-python '<python script here>'
+openghost python code '<python script here>'
 ```
 
 ### Single-Packet Concept

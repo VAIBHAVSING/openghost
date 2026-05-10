@@ -1,689 +1,829 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─── OpenGhost Unified Pentest Launcher ──────────────────────────────────────
-# Central entry point for ALL tool execution. Enforces:
-#   1. Command blocklist (dangerous commands rejected)
-#   2. Scope checking (out-of-scope targets rejected)
-#   3. Rate limiting (token bucket per target)
-#   4. Circuit breaker (unreachable targets auto-paused)
-#   5. Output truncation (caps stdout/stderr)
-# ─────────────────────────────────────────────────────────────────────────────
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${SKILL_DIR}/../.." && pwd)"
 
-IMAGE_NAME="${OPENGHOST_IMAGE:-openghost-runtime:latest}"
-CONTAINER_NAME="${OPENGHOST_CONTAINER:-openghost-runtime}"
-WORKSPACE_DIR="${OPENGHOST_WORKSPACE:-${REPO_ROOT}}"
+DEFAULT_IMAGE="ghcr.io/openghost/openghost-sandbox:latest"
+IMAGE_NAME="${OPENGHOST_IMAGE:-${DEFAULT_IMAGE}}"
+CONTAINER_NAME="${OPENGHOST_CONTAINER:-openghost-sandbox}"
+WORKSPACE_DIR="${OPENGHOST_WORKSPACE:-${PWD}}"
+OPENGHOST_HOME="${OPENGHOST_HOME:-${PWD}/.openghost}"
+DEV_DOCKER_DIR="${REPO_ROOT}/developer/docker"
+DOCKERFILE_PATH="${OPENGHOST_DOCKERFILE:-${DEV_DOCKER_DIR}/Dockerfile}"
+BUILD_CONTEXT="${OPENGHOST_BUILD_CONTEXT:-${DEV_DOCKER_DIR}}"
 
-MAX_STDOUT=15000
-MAX_STDERR=5000
-
-# ─── Blocklist ───────────────────────────────────────────────────────────────
-BLOCKED_PATTERNS=(
-  'rm -rf /'  'rm -rf /*'  'mkfs'  'dd if='  ':(){:|:&};:'
-  'shutdown'  'reboot'  'halt'  'poweroff'  'init 0'  'init 6'
-  'chmod -R 777 /'  'chown -R'  '> /dev/sd'  'mv / '  'wget.*|.*sh'
-  'curl.*|.*sh'  'nc -e'  'ncat -e'  '/dev/tcp/'  'telnet.*|'
+ALLOWED_TOOLS=(
+  bash sh python python3
+  curl wget http jq openssl dig whois nc
+  nmap nikto sqlmap nuclei ffuf katana httpx subfinder dnsx
+  arjun dirsearch linkfinder jwt_tool testssl.sh wafw00f
+  hashcat chromium websocat grpcurl
 )
 
-check_blocklist() {
-  local cmd="$1"
-  local cmd_lower
-  cmd_lower="$(echo "$cmd" | tr '[:upper:]' '[:lower:]')"
-  for pattern in "${BLOCKED_PATTERNS[@]}"; do
-    if [[ "$cmd_lower" == *"$pattern"* ]]; then
-      printf '{"error":"Command blocked","reason":"matches blocklist pattern: %s"}\n' "$pattern" >&2
-      return 1
-    fi
+BLOCKED_BASH_PATTERNS=(
+  'rm -rf /'
+  'rm -rf /*'
+  'mkfs'
+  'dd if='
+  ':(){:|:&};:'
+  'shutdown'
+  'reboot'
+  'halt'
+  'poweroff'
+  'init 0'
+  'init 6'
+  'chmod -R 777 /'
+  '> /dev/sd'
+  'nc -e'
+  'ncat -e'
+)
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+info() {
+  printf '%s\n' "$*" >&2
+}
+
+usage() {
+  cat <<'EOF'
+Usage: openghost <command> [args...]
+
+Sandbox lifecycle:
+  openghost sandbox start              Pull and start the Docker sandbox
+  openghost sandbox status             Show container and toolchain status
+  openghost sandbox stop               Stop and remove the sandbox
+  openghost sandbox logs               Show container logs
+  openghost sandbox pull               Pull the configured image
+  openghost sandbox update             Pull latest image and recreate container
+  openghost sandbox shell              Open an interactive shell in the sandbox
+
+Execution:
+  openghost run TOOL [args...]          Run an allowlisted tool inside Docker
+  openghost bash 'COMMAND'              Run bash inside Docker
+  openghost python code 'SCRIPT'        Run inline Python inside Docker
+  openghost python file PATH [-- args]  Run a workspace Python file inside Docker
+  openghost python repl                 Open an interactive Python REPL in Docker
+
+Engagement helpers:
+  openghost engagement init --url URL [--name NAME] [--out DIR]
+  openghost finding add [--engagement NAME|--dir DIR] --title TITLE --severity SEVERITY [...]
+  openghost finding list [--engagement NAME|--dir DIR]
+  openghost todo add [--engagement NAME|--dir DIR] --task TASK [--module MOD] [--priority P]
+  openghost todo list [--engagement NAME|--dir DIR] [--status STATUS]
+  openghost todo update [--engagement NAME|--dir DIR] --id ID --status STATUS [--notes TEXT]
+  openghost report generate [--engagement NAME|--dir DIR]
+
+Compatibility aliases:
+  openghost preflight                   Same as sandbox status/pull information
+  openghost start                       Same as sandbox start
+  openghost status                      Same as sandbox status
+  openghost stop                        Same as sandbox stop
+  openghost exec-tool TOOL [args...]    Same as run TOOL [args...]
+  openghost exec-bash 'COMMAND'         Same as bash 'COMMAND'
+  openghost exec-python 'SCRIPT'        Same as python code 'SCRIPT'
+
+Environment:
+  OPENGHOST_IMAGE                       Default: ghcr.io/openghost/openghost-sandbox:latest
+  OPENGHOST_CONTAINER                   Default: openghost-sandbox
+  OPENGHOST_WORKSPACE                   Default: current working directory
+  OPENGHOST_HOME                        Default: $PWD/.openghost
+  OPENGHOST_BUILD=1                     Developer-only: build a local Dockerfile
+  OPENGHOST_DOCKERFILE                  Developer-only Dockerfile path
+  OPENGHOST_BUILD_CONTEXT               Developer-only Docker build context
+EOF
+}
+
+require_host_tool() {
+  command -v "$1" >/dev/null 2>&1 || die "missing host tool: $1"
+}
+
+docker_daemon_available() {
+  docker info >/dev/null 2>&1
+}
+
+try_start_docker_daemon() {
+  if docker_daemon_available; then
+    return 0
+  fi
+
+  info 'Docker daemon is not reachable; trying to start it if the platform allows it...'
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user start docker >/dev/null 2>&1 || systemctl start docker >/dev/null 2>&1 || true
+  fi
+
+  if [[ "${OSTYPE:-}" == darwin* ]] && command -v open >/dev/null 2>&1; then
+    open -a Docker >/dev/null 2>&1 || true
+  fi
+
+  for _ in 1 2 3 4 5; do
+    docker_daemon_available && return 0
+    sleep 2
   done
-  return 0
+
+  return 1
 }
 
-# ─── Scope Checker ───────────────────────────────────────────────────────────
-extract_targets() {
-  local cmd="$1"
-  grep -oE '(https?://[^ "'\'']+|[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})' <<< "$cmd" 2>/dev/null | while read -r url; do
-    echo "$url" | sed -E 's|https?://||;s|/.*||;s|:.*||'
-  done | sort -u
+require_docker() {
+  require_host_tool docker
+  try_start_docker_daemon || die 'Docker daemon is not running or is not accessible'
 }
 
-check_scope() {
-  local cmd="$1"
-  local scope_file="${2:-}"
-  [[ -z "$scope_file" || ! -f "$scope_file" ]] && return 0
-
-  local targets
-  targets="$(extract_targets "$cmd")"
-  [[ -z "$targets" ]] && return 0
-
-  while IFS= read -r target; do
-    [[ -z "$target" ]] && continue
-    if ! grep -qiF "$target" "$scope_file" 2>/dev/null; then
-      local found=false
-      while IFS= read -r pattern; do
-        pattern="$(echo "$pattern" | sed 's/^[- ]*//' | tr -d '"' | tr -d "'")"
-        [[ -z "$pattern" || "$pattern" == "#"* ]] && continue
-        if [[ "$pattern" == "*."* ]]; then
-          local suffix="${pattern#\*.}"
-          if [[ "$target" == *".$suffix" || "$target" == "$suffix" ]]; then
-            found=true; break
-          fi
-        elif [[ "$target" == "$pattern" ]]; then
-          found=true; break
-        fi
-      done < <(grep -E '^\s*-\s' "$scope_file" 2>/dev/null || true)
-      if [[ "$found" == "false" ]]; then
-        printf '{"error":"Target out of scope","target":"%s"}\n' "$target" >&2
-        return 1
-      fi
-    fi
-  done <<< "$targets"
-  return 0
+container_exists() {
+  docker inspect "$CONTAINER_NAME" >/dev/null 2>&1
 }
-
-# ─── Rate Limiter (file-based token bucket) ──────────────────────────────────
-RATE_STATE_DIR="/tmp/openghost-rate"
-RATE_LIMIT="${OPENGHOST_RATE_LIMIT:-5}"
-RATE_WINDOW=1
-
-check_rate_limit() {
-  local target="${1:-default}"
-  mkdir -p "$RATE_STATE_DIR"
-  local state_file="$RATE_STATE_DIR/$(echo "$target" | tr -c '[:alnum:]' '_')"
-  local now
-  now="$(date +%s)"
-
-  if [[ -f "$state_file" ]]; then
-    local last_time count
-    read -r last_time count < "$state_file" 2>/dev/null || { last_time=0; count=0; }
-    if (( now - last_time < RATE_WINDOW )); then
-      if (( count >= RATE_LIMIT )); then
-        printf '{"error":"Rate limit exceeded","target":"%s","limit":"%s/s"}\n' "$target" "$RATE_LIMIT" >&2
-        return 1
-      fi
-      echo "$last_time $((count + 1))" > "$state_file"
-    else
-      echo "$now 1" > "$state_file"
-    fi
-  else
-    echo "$now 1" > "$state_file"
-  fi
-  return 0
-}
-
-# ─── Circuit Breaker ─────────────────────────────────────────────────────────
-CIRCUIT_STATE_DIR="/tmp/openghost-circuit"
-CIRCUIT_THRESHOLD=5
-CIRCUIT_RESET_SEC=60
-
-check_circuit() {
-  local target="${1:-default}"
-  mkdir -p "$CIRCUIT_STATE_DIR"
-  local state_file="$CIRCUIT_STATE_DIR/$(echo "$target" | tr -c '[:alnum:]' '_')"
-  local now
-  now="$(date +%s)"
-
-  if [[ -f "$state_file" ]]; then
-    local failures last_fail
-    read -r failures last_fail < "$state_file" 2>/dev/null || { failures=0; last_fail=0; }
-    if (( failures >= CIRCUIT_THRESHOLD )); then
-      if (( now - last_fail < CIRCUIT_RESET_SEC )); then
-        local remaining=$(( CIRCUIT_RESET_SEC - (now - last_fail) ))
-        printf '{"error":"Circuit breaker open","target":"%s","failures":%d,"retry_in":"%ds"}\n' \
-          "$target" "$failures" "$remaining" >&2
-        return 1
-      else
-        rm -f "$state_file"
-      fi
-    fi
-  fi
-  return 0
-}
-
-update_circuit() {
-  local target="${1:-default}" exit_code="${2:-0}"
-  mkdir -p "$CIRCUIT_STATE_DIR"
-  local state_file="$CIRCUIT_STATE_DIR/$(echo "$target" | tr -c '[:alnum:]' '_')"
-  local now
-  now="$(date +%s)"
-
-  if (( exit_code != 0 )); then
-    local failures=0
-    [[ -f "$state_file" ]] && { read -r failures _ < "$state_file" 2>/dev/null || failures=0; }
-    echo "$((failures + 1)) $now" > "$state_file"
-  else
-    rm -f "$state_file" 2>/dev/null || true
-  fi
-}
-
-# ─── Output Truncation ──────────────────────────────────────────────────────
-truncate_output() {
-  local text="$1" max="$2"
-  if (( ${#text} > max )); then
-    echo "${text:0:$max}"
-    printf '\n[TRUNCATED — %d bytes total, showing first %d]\n' "${#text}" "$max"
-  else
-    echo "$text"
-  fi
-}
-
-# ─── Safety Pipeline ────────────────────────────────────────────────────────
-# Runs: blocklist → scope → circuit → rate limit → execute → circuit update → truncate
-run_safe() {
-  local cmd="$1"
-  local scope_file="${OPENGHOST_SCOPE:-}"
-
-  check_blocklist "$cmd" || return 1
-  check_scope "$cmd" "$scope_file" || return 1
-
-  local targets
-  targets="$(extract_targets "$cmd")"
-  local primary_target
-  primary_target="$(echo "$targets" | head -1)"
-  primary_target="${primary_target:-default}"
-
-  check_circuit "$primary_target" || return 1
-  check_rate_limit "$primary_target" || return 1
-
-  local stdout stderr exit_code
-  stdout="$(docker exec "$CONTAINER_NAME" /bin/bash -lc "$cmd" 2>/tmp/openghost_stderr)" && exit_code=0 || exit_code=$?
-  stderr="$(cat /tmp/openghost_stderr 2>/dev/null || true)"
-
-  update_circuit "$primary_target" "$exit_code"
-
-  truncate_output "$stdout" "$MAX_STDOUT"
-  if [[ -n "$stderr" ]]; then
-    truncate_output "$stderr" "$MAX_STDERR" >&2
-  fi
-
-  return "$exit_code"
-}
-
-# ─── Container Management ───────────────────────────────────────────────────
-die() { printf 'error: %s\n' "$*" >&2; exit 1; }
-
-require_docker() { command -v docker >/dev/null 2>&1 || die "Docker not found"; }
 
 container_running() {
-  docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q "true"
+  docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q '^true$'
+}
+
+image_exists() {
+  docker image inspect "$IMAGE_NAME" >/dev/null 2>&1
+}
+
+pull_image() {
+  require_docker
+  info "Pulling sandbox image: ${IMAGE_NAME}"
+  docker pull "$IMAGE_NAME"
+}
+
+build_image() {
+  require_docker
+  [[ -f "$DOCKERFILE_PATH" ]] || die "Dockerfile not found: $DOCKERFILE_PATH"
+  info "Building developer sandbox image locally: ${IMAGE_NAME}"
+  docker build -t "$IMAGE_NAME" -f "$DOCKERFILE_PATH" "$BUILD_CONTEXT"
 }
 
 ensure_image() {
-  if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-    local dockerfile="${SKILL_DIR}/docker/Dockerfile"
-    if [[ -f "$dockerfile" ]]; then
-      docker build -t "$IMAGE_NAME" -f "$dockerfile" "${SKILL_DIR}/docker"
-    else
-      die "Image $IMAGE_NAME not found and no Dockerfile at $dockerfile"
-    fi
+  image_exists && return 0
+
+  if [[ "${OPENGHOST_BUILD:-}" == "1" ]]; then
+    build_image
+    return 0
+  fi
+
+  if pull_image; then
+    return 0
+  fi
+
+  die "image not available: $IMAGE_NAME. Normal installs pull the published GHCR image; developers can set OPENGHOST_BUILD=1 to build locally."
+}
+
+workspace_abs() {
+  realpath "$WORKSPACE_DIR"
+}
+
+container_path_for_existing() {
+  local input="$1"
+  local abs ws
+  abs="$(realpath "$input")"
+  ws="$(workspace_abs)"
+  case "$abs" in
+    "$ws") printf '/workspace' ;;
+    "$ws"/*) printf '/workspace/%s' "${abs#"$ws"/}" ;;
+    *) die "path is outside OPENGHOST_WORKSPACE: $input" ;;
+  esac
+}
+
+container_path_for_dir() {
+  local input="$1"
+  local parent base parent_abs ws
+  parent="$(dirname "$input")"
+  base="$(basename "$input")"
+  mkdir -p "$parent"
+  parent_abs="$(realpath "$parent")"
+  ws="$(workspace_abs)"
+  case "$parent_abs" in
+    "$ws") printf '/workspace/%s' "$base" ;;
+    "$ws"/*) printf '/workspace/%s/%s' "${parent_abs#"$ws"/}" "$base" ;;
+    *) die "path is outside OPENGHOST_WORKSPACE: $input" ;;
+  esac
+}
+
+state_root_abs() {
+  mkdir -p "$OPENGHOST_HOME"
+  realpath "$OPENGHOST_HOME"
+}
+
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
+}
+
+engagement_dir_for_name() {
+  local name="$1"
+  [[ -n "$name" ]] || die 'engagement name is empty'
+  printf '%s/engagements/%s' "$(state_root_abs)" "$(slugify "$name")"
+}
+
+set_current_engagement() {
+  local dir="$1"
+  mkdir -p "$(state_root_abs)"
+  realpath "$dir" > "$(state_root_abs)/current"
+}
+
+current_engagement_dir() {
+  local current_file
+  current_file="$(state_root_abs)/current"
+  [[ -f "$current_file" ]] || die 'no active engagement; run: openghost engagement init --url <url> --name <name>'
+  local dir
+  dir="$(<"$current_file")"
+  [[ -d "$dir" ]] || die "active engagement directory does not exist: $dir"
+  printf '%s' "$dir"
+}
+
+resolve_engagement_dir() {
+  local dir="$1"
+  local engagement="$2"
+  if [[ -n "$dir" ]]; then
+    printf '%s' "$dir"
+  elif [[ -n "$engagement" ]]; then
+    engagement_dir_for_name "$engagement"
+  else
+    current_engagement_dir
   fi
 }
 
-start_runtime() {
-  require_docker
-  ensure_image
-  if container_running; then
-    printf 'runtime already running: %s\n' "$CONTAINER_NAME"
-    return
+docker_exec() {
+  ensure_running
+  docker exec "$CONTAINER_NAME" "$@"
+}
+
+docker_exec_interactive() {
+  ensure_running
+  if [[ -t 0 && -t 1 ]]; then
+    docker exec -it "$CONTAINER_NAME" "$@"
+  else
+    docker exec -i "$CONTAINER_NAME" "$@"
   fi
-  docker inspect "$CONTAINER_NAME" >/dev/null 2>&1 && docker rm -f "$CONTAINER_NAME" >/dev/null
+}
+
+sandbox_start() {
+  require_docker
+
+  if container_running; then
+    printf 'sandbox already running: %s\n' "$CONTAINER_NAME"
+    return 0
+  fi
+
+  ensure_image
+
+  if container_exists; then
+    docker start "$CONTAINER_NAME" >/dev/null
+    printf 'sandbox started: %s\n' "$CONTAINER_NAME"
+    return 0
+  fi
+
+  local ws
+  ws="$(workspace_abs)"
+
   docker run -d \
     --name "$CONTAINER_NAME" \
     --security-opt no-new-privileges:true \
     --cap-drop ALL \
     --cap-add NET_RAW \
+    --cap-add NET_BIND_SERVICE \
     --add-host host.docker.internal:host-gateway \
-    -v "${WORKSPACE_DIR}:/workspace" \
+    -v "${ws}:/workspace" \
     -w /workspace \
     "$IMAGE_NAME" >/dev/null
-  printf 'runtime started: %s\n' "$CONTAINER_NAME"
+
+  printf 'sandbox started: %s\n' "$CONTAINER_NAME"
 }
 
 ensure_running() {
   require_docker
-  container_running || start_runtime >/dev/null
+  container_running || sandbox_start >/dev/null
 }
 
-# ─── Tool Allowlist ──────────────────────────────────────────────────────────
-ALLOWED_TOOLS=(
-  bash sh python python3 ruby perl node npm
-  nmap nuclei ffuf gobuster dirsearch katana httpx subfinder dnsx
-  nikto sqlmap arjun wafw00f testssl.sh
-  curl wget http jq dig whois nc ncat
-  jwt_tool hashcat hydra
-  wscat websocat
-  linkfinder
-  mitmproxy
-  ysoserial tplmap ssti ssrfmap nosqlmap
-  graphql-cop
-)
+sandbox_status() {
+  require_docker
+  printf 'image: %s\n' "$IMAGE_NAME"
+  if image_exists; then
+    printf 'image_status: present\n'
+  else
+    printf 'image_status: missing\n'
+  fi
+
+  if ! container_exists; then
+    printf 'container: %s\nstatus: not_created\n' "$CONTAINER_NAME"
+    return 0
+  fi
+
+  docker inspect --format 'container: {{.Name}}
+status: {{.State.Status}}
+health: {{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}}' "$CONTAINER_NAME" | sed 's|container: /|container: |'
+
+  if container_running; then
+    docker exec "$CONTAINER_NAME" /opt/healthcheck.sh || true
+  fi
+}
+
+sandbox_stop() {
+  require_docker
+  if container_exists; then
+    docker rm -f "$CONTAINER_NAME" >/dev/null
+    printf 'sandbox stopped: %s\n' "$CONTAINER_NAME"
+  else
+    printf 'sandbox not present: %s\n' "$CONTAINER_NAME"
+  fi
+}
+
+sandbox_logs() {
+  require_docker
+  container_exists || die "sandbox not present: $CONTAINER_NAME"
+  docker logs "$CONTAINER_NAME" "$@"
+}
+
+sandbox_update() {
+  if [[ "${OPENGHOST_BUILD:-}" == "1" ]]; then
+    build_image
+  else
+    pull_image
+  fi
+  if container_exists; then
+    docker rm -f "$CONTAINER_NAME" >/dev/null
+  fi
+  sandbox_start
+}
 
 is_allowed_tool() {
   local tool="$1"
+  local allowed
   for allowed in "${ALLOWED_TOOLS[@]}"; do
     [[ "$tool" == "$allowed" ]] && return 0
   done
   return 1
 }
 
-# ─── Commands ────────────────────────────────────────────────────────────────
-usage() {
-  cat <<'EOF'
-Usage: openghost.sh <command> [args...]
-
-Container:
-  preflight              Check Docker and image status
-  start                  Build image if needed and start runtime
-  status                 Show runtime and toolchain health
-  stop                   Stop and remove runtime
-
-Execution (all go through safety pipeline):
-  exec-tool TOOL [args]  Run an approved tool in the sandbox
-  exec-bash 'COMMAND'    Run a shell command in the sandbox
-  exec-python 'SCRIPT'   Run a Python script in the sandbox
-
-Engagement:
-  init --url URL --out DIR   Create engagement directory
-  save-finding --dir DIR ... Save a finding to findings.json
-  get-findings --dir DIR     List findings
-  save-todo --dir DIR ...    Save a todo item
-  get-todos --dir DIR        List todos
-  update-todo --dir DIR ...  Update a todo status
-  generate-report --dir DIR  Compile findings into report
-
-Environment:
-  OPENGHOST_SCOPE=path/to/scope.yaml  Enforce scope checking
-  OPENGHOST_RATE_LIMIT=5              Requests per second per target
-  OPENGHOST_IMAGE=name:tag            Docker image name
-  OPENGHOST_CONTAINER=name            Container name
-EOF
+check_bash_blocklist() {
+  local cmd="$1"
+  local lower pattern
+  lower="$(printf '%s' "$cmd" | tr '[:upper:]' '[:lower:]')"
+  for pattern in "${BLOCKED_BASH_PATTERNS[@]}"; do
+    if [[ "$lower" == *"$pattern"* ]]; then
+      die "bash command blocked by pattern: $pattern"
+    fi
+  done
 }
 
-cmd_preflight() {
-  require_docker
-  docker info >/dev/null
-  if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-    printf 'image: present (%s)\n' "$IMAGE_NAME"
-  else
-    printf 'image: missing (%s); start will build it\n' "$IMAGE_NAME"
-  fi
-  printf 'container: %s\n' "$CONTAINER_NAME"
+cmd_run() {
+  (($# >= 1)) || die 'run requires a tool name'
+  local tool="$1"
+  shift
+  is_allowed_tool "$tool" || die "tool is not allowlisted: $tool"
+  docker_exec "$tool" "$@"
 }
 
-cmd_status() {
-  require_docker
-  if ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
-    printf 'runtime: not created\n'; return
-  fi
-  docker inspect --format 'runtime: {{.State.Status}}' "$CONTAINER_NAME"
-  if container_running; then
-    docker exec "$CONTAINER_NAME" bash -c 'echo "tools:"; for t in nmap sqlmap nuclei ffuf httpx curl python3; do command -v $t >/dev/null 2>&1 && echo "  $t: ok" || echo "  $t: missing"; done'
-  fi
+cmd_bash() {
+  (($# == 1)) || die "bash requires one command string"
+  check_bash_blocklist "$1"
+  docker_exec bash -lc "$1"
 }
 
-cmd_init() {
-  local url="" out=""
+cmd_python() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'python requires: code, file, or repl'
+  shift || true
+
+  case "$subcommand" in
+    code)
+      (($# == 1)) || die "python code requires one script string"
+      local encoded
+      encoded="$(printf '%s' "$1" | base64 | tr -d '\n')"
+      docker_exec python3 -c "import base64; exec(base64.b64decode('${encoded}').decode())"
+      ;;
+    file)
+      (($# >= 1)) || die "python file requires a file path"
+      local file_path container_file
+      file_path="$1"
+      shift
+      if [[ "${1:-}" == "--" ]]; then
+        shift
+      fi
+      [[ -f "$file_path" ]] || die "python file not found: $file_path"
+      container_file="$(container_path_for_existing "$file_path")"
+      docker_exec python3 "$container_file" "$@"
+      ;;
+    repl)
+      (($# == 0)) || die "python repl does not accept arguments"
+      docker_exec_interactive python3
+      ;;
+    *)
+      die "unknown python subcommand: $subcommand"
+      ;;
+  esac
+}
+
+cmd_sandbox() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'sandbox requires: start, status, stop, logs, pull, update, or shell'
+  shift || true
+
+  case "$subcommand" in
+    start) sandbox_start "$@" ;;
+    status) sandbox_status "$@" ;;
+    stop) sandbox_stop "$@" ;;
+    logs) sandbox_logs "$@" ;;
+    pull) pull_image "$@" ;;
+    update) sandbox_update "$@" ;;
+    shell) docker_exec_interactive bash ;;
+    *) die "unknown sandbox subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_engagement_init() {
+  local url="" out="" name=""
   while (($#)); do
     case "$1" in
       --url) url="${2:-}"; shift 2 ;;
+      --name) name="${2:-}"; shift 2 ;;
       --out) out="${2:-}"; shift 2 ;;
-      *) die "unknown init argument: $1" ;;
+      *) die "unknown engagement init argument: $1" ;;
     esac
   done
-  [[ -n "$url" ]] || die "init requires --url"
-  [[ -n "$out" ]] || die "init requires --out"
+  [[ -n "$url" ]] || die 'engagement init requires --url'
 
-  mkdir -p "$out"/{notes,evidence/{http,screenshots,raw},findings,reports,artifacts}
+  local host
+  host="$(printf '%s' "$url" | sed -E 's|https?://||;s|/.*||;s|:.*||')"
+  name="${name:-$(slugify "$host")}"
+  [[ -n "$name" ]] || die 'could not derive engagement name; pass --name'
+  if [[ -z "$out" ]]; then
+    out="$(engagement_dir_for_name "$name")"
+  fi
+
+  mkdir -p "$(state_root_abs)/engagements" "$(state_root_abs)/cache" "$(state_root_abs)/tmp"
+  mkdir -p "$out"/notes "$out"/evidence/http "$out"/evidence/screenshots "$out"/evidence/raw \
+    "$out"/findings "$out"/reports "$out"/artifacts "$out"/scripts "$out"/browser "$out"/runs
+
+  if [[ ! -f "$(state_root_abs)/config.json" ]]; then
+    printf '{"version":"1","created_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(state_root_abs)/config.json"
+  fi
 
   cat > "$out/scope.yaml" <<SCOPE
 target_url: "$url"
 allowed_hosts:
-  - "$(echo "$url" | sed -E 's|https?://||;s|/.*||;s|:.*||')"
+  - "$host"
 exclusions:
-  paths: [/logout]
+  paths:
+    - /logout
   hosts: []
 rate_limits:
   requests_per_second: 5
-notes: "Edit this file before testing."
+notes: "Edit this file before testing. Add every authorized host and exclusion."
 SCOPE
 
-  echo '[]' > "$out/findings.json"
-  echo '[]' > "$out/todos.json"
-  printf '{"target_url":"%s","created_at":"%s","status":"active"}\n' \
-    "$url" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$out/engagement.json"
-  printf 'Engagement created: %s\n' "$out"
+  printf '[]\n' > "$out/findings.json"
+  printf '[]\n' > "$out/todos.json"
+  printf '{"name":"%s","target_url":"%s","created_at":"%s","status":"active"}\n' \
+    "$name" "$url" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$out/engagement.json"
+  set_current_engagement "$out"
+  printf 'engagement created: %s\n' "$out"
 }
 
-cmd_exec_tool() {
-  (($# >= 1)) || die "exec-tool requires a tool name"
-  local tool="$1"; shift
-  ensure_running
-  is_allowed_tool "$tool" || die "tool not in allowlist: $tool"
-  # Build a properly quoted command string preserving argument boundaries
-  local cmd="$tool"
-  local arg
-  for arg in "$@"; do
-    # Escape single quotes inside each argument and wrap in single quotes
-    cmd+=" '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
-  done
-  run_safe "$cmd"
+run_json_helper() {
+  local script="$1"
+  shift
+  require_host_tool python3
+  env OG_HELPER_SCRIPT="$script" "$@" python3 - <<'PY'
+import os
+script = os.environ.pop('OG_HELPER_SCRIPT')
+exec(script)
+PY
 }
 
-cmd_exec_bash() {
-  (($# == 1)) || die "exec-bash requires one command string"
-  ensure_running
-  run_safe "$1"
-}
-
-cmd_exec_python() {
-  (($# == 1)) || die "exec-python requires one script string"
-  ensure_running
-  # Pass script via base64 to avoid quote-escaping issues
-  local encoded
-  encoded="$(printf '%s' "$1" | base64 -w0)"
-  run_safe "python3 -c \"import base64,sys;exec(base64.b64decode('$encoded').decode())\""
-}
-
-cmd_stop() {
-  require_docker
-  if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
-    docker rm -f "$CONTAINER_NAME" >/dev/null
-    printf 'runtime stopped: %s\n' "$CONTAINER_NAME"
-  else
-    printf 'runtime not present\n'
-  fi
-}
-
-# ─── Finding Management ─────────────────────────────────────────────────────
-cmd_save_finding() {
-  local dir="" title="" severity="" module="" url="" evidence="" confidence="" impact="" remediation="" wstg=""
+cmd_finding_add() {
+  local dir="" engagement="" title="" severity="" module="" url="" evidence="" confidence="" impact="" remediation="" wstg=""
   while (($#)); do
     case "$1" in
-      --dir) dir="$2"; shift 2 ;;
-      --title) title="$2"; shift 2 ;;
-      --severity) severity="$2"; shift 2 ;;
-      --module) module="$2"; shift 2 ;;
-      --url) url="$2"; shift 2 ;;
-      --evidence) evidence="$2"; shift 2 ;;
-      --confidence) confidence="$2"; shift 2 ;;
-      --impact) impact="$2"; shift 2 ;;
-      --remediation) remediation="$2"; shift 2 ;;
-      --wstg) wstg="$2"; shift 2 ;;
-      *) die "unknown save-finding argument: $1" ;;
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --title) title="${2:-}"; shift 2 ;;
+      --severity) severity="${2:-}"; shift 2 ;;
+      --module) module="${2:-}"; shift 2 ;;
+      --url) url="${2:-}"; shift 2 ;;
+      --evidence) evidence="${2:-}"; shift 2 ;;
+      --confidence) confidence="${2:-}"; shift 2 ;;
+      --impact) impact="${2:-}"; shift 2 ;;
+      --remediation) remediation="${2:-}"; shift 2 ;;
+      --wstg) wstg="${2:-}"; shift 2 ;;
+      *) die "unknown finding add argument: $1" ;;
     esac
   done
-  [[ -n "$dir" && -n "$title" && -n "$severity" ]] || die "save-finding requires --dir, --title, --severity"
-
-  local file="$dir/findings.json"
-  [[ -f "$file" ]] || echo '[]' > "$file"
-
-  local count
-  count="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))))" "$file" 2>/dev/null || echo 0)"
-  local id="F-$(printf '%03d' $((count + 1)))"
-  local ts
-  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-  # Pass values via env vars to avoid shell injection through inline Python
-  OG_FILE="$file" OG_ID="$id" OG_TITLE="$title" OG_SEVERITY="$severity" \
-  OG_MODULE="$module" OG_URL="$url" OG_EVIDENCE="$evidence" \
-  OG_CONFIDENCE="${confidence:-0}" OG_IMPACT="$impact" \
-  OG_REMEDIATION="$remediation" OG_WSTG="$wstg" OG_TS="$ts" \
-  python3 -c "
-import json, os
-f = json.load(open(os.environ['OG_FILE']))
-ev = os.environ['OG_EVIDENCE']
-conf_str = os.environ['OG_CONFIDENCE']
-f.append({
-    'id': os.environ['OG_ID'],
-    'title': os.environ['OG_TITLE'],
-    'severity': os.environ['OG_SEVERITY'],
-    'module': os.environ['OG_MODULE'],
-    'url': os.environ['OG_URL'],
-    'evidence': ev.split(',') if ev else [],
-    'confidence': int(conf_str) if conf_str.isdigit() else 0,
-    'impact': os.environ['OG_IMPACT'],
-    'remediation': os.environ['OG_REMEDIATION'],
-    'wstg_id': os.environ['OG_WSTG'],
-    'status': 'confirmed',
-    'created_at': os.environ['OG_TS']
-})
-json.dump(f, open(os.environ['OG_FILE'], 'w'), indent=2)
-print(json.dumps({'saved': os.environ['OG_ID'], 'title': os.environ['OG_TITLE'], 'severity': os.environ['OG_SEVERITY']}))
-"
-}
-
-cmd_get_findings() {
-  local dir=""
-  while (($#)); do
-    case "$1" in
-      --dir) dir="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-  [[ -n "$dir" ]] || die "get-findings requires --dir"
-  local file="$dir/findings.json"
-  [[ -f "$file" ]] || { echo '[]'; return; }
-  OG_FILE="$file" python3 -c "
-import json, os
-findings = json.load(open(os.environ['OG_FILE']))
-for f in findings:
-    sev = f.get('severity','?').upper()
-    badge = {'CRITICAL':'🔴','HIGH':'🟠','MEDIUM':'🟡','LOW':'🔵','INFO':'⚪'}.get(sev,'⚪')
-    print(f\"{badge} [{f['id']}] {f['title']} ({sev}) — confidence:{f.get('confidence',0)}%\")
-print(f'\\nTotal: {len(findings)} findings')
-"
-}
-
-# ─── Todo Management ─────────────────────────────────────────────────────────
-cmd_save_todo() {
-  local dir="" task="" module="" priority="medium"
-  while (($#)); do
-    case "$1" in
-      --dir) dir="$2"; shift 2 ;;
-      --task) task="$2"; shift 2 ;;
-      --module) module="$2"; shift 2 ;;
-      --priority) priority="$2"; shift 2 ;;
-      *) die "unknown save-todo argument: $1" ;;
-    esac
-  done
-  [[ -n "$dir" && -n "$task" ]] || die "save-todo requires --dir, --task"
-
-  local file="$dir/todos.json"
-  [[ -f "$file" ]] || echo '[]' > "$file"
-
-  local count
-  count="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))))" "$file" 2>/dev/null || echo 0)"
-  local id="T-$(printf '%03d' $((count + 1)))"
-  local ts
-  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-  # Pass values via env vars to avoid shell injection through inline Python
-  OG_FILE="$file" OG_ID="$id" OG_TASK="$task" OG_MODULE="$module" \
-  OG_PRIORITY="$priority" OG_TS="$ts" \
-  python3 -c "
-import json, os
-f = json.load(open(os.environ['OG_FILE']))
-f.append({
-    'id': os.environ['OG_ID'],
-    'task': os.environ['OG_TASK'],
-    'module': os.environ['OG_MODULE'],
-    'priority': os.environ['OG_PRIORITY'],
-    'status': 'pending',
-    'created_at': os.environ['OG_TS'],
-    'completed_at': None
-})
-json.dump(f, open(os.environ['OG_FILE'], 'w'), indent=2)
-print(json.dumps({'saved': os.environ['OG_ID'], 'task': os.environ['OG_TASK']}))
-"
-}
-
-cmd_get_todos() {
-  local dir="" status_filter=""
-  while (($#)); do
-    case "$1" in
-      --dir) dir="$2"; shift 2 ;;
-      --status) status_filter="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-  [[ -n "$dir" ]] || die "get-todos requires --dir"
-  local file="$dir/todos.json"
-  [[ -f "$file" ]] || { echo '[]'; return; }
-  OG_FILE="$file" OG_SF="$status_filter" python3 -c "
-import json, os
-todos = json.load(open(os.environ['OG_FILE']))
-sf = os.environ.get('OG_SF', '')
-for t in todos:
-    if sf and t['status'] != sf: continue
-    icon = {'pending':'⬜','done':'✅','skip':'⏭','blocked':'🚫'}.get(t['status'],'⬜')
-    pri = {'high':'🔴','medium':'🟡','low':'🔵'}.get(t.get('priority',''),'⬜')
-    print(f\"{icon} [{t['id']}] {pri} {t['task']} ({t.get('module','')}) — {t['status']}\")
-pending = sum(1 for t in todos if t['status']=='pending')
-done = sum(1 for t in todos if t['status']=='done')
-print(f'\\nTotal: {len(todos)} | Pending: {pending} | Done: {done}')
-"
-}
-
-cmd_update_todo() {
-  local dir="" id="" status="" notes=""
-  while (($#)); do
-    case "$1" in
-      --dir) dir="$2"; shift 2 ;;
-      --id) id="$2"; shift 2 ;;
-      --status) status="$2"; shift 2 ;;
-      --notes) notes="$2"; shift 2 ;;
-      *) die "unknown update-todo argument: $1" ;;
-    esac
-  done
-  [[ -n "$dir" && -n "$id" && -n "$status" ]] || die "update-todo requires --dir, --id, --status"
-  local file="$dir/todos.json"
-  [[ -f "$file" ]] || die "no todos.json in $dir"
-
-  # Pass values via env vars to avoid shell injection through inline Python
-  OG_FILE="$file" OG_ID="$id" OG_STATUS="$status" OG_NOTES="$notes" \
-  python3 -c "
+  [[ -n "$title" && -n "$severity" ]] || die 'finding add requires --title and --severity'
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  mkdir -p "$dir"
+  [[ -f "$dir/findings.json" ]] || printf '[]\n' > "$dir/findings.json"
+  local helper
+  read -r -d '' helper <<'PY' || true
 import json, os
 from datetime import datetime, timezone
-f = json.load(open(os.environ['OG_FILE']))
+path = os.environ["OG_DIR"] + "/findings.json"
+with open(path, "r", encoding="utf-8") as f:
+    findings = json.load(f)
+fid = f"F-{len(findings) + 1:03d}"
+conf = os.environ.get("OG_CONFIDENCE", "0")
+finding = {
+    "id": fid,
+    "title": os.environ["OG_TITLE"],
+    "severity": os.environ["OG_SEVERITY"],
+    "module": os.environ.get("OG_MODULE", ""),
+    "url": os.environ.get("OG_URL", ""),
+    "evidence": [x for x in os.environ.get("OG_EVIDENCE", "").split(",") if x],
+    "confidence": int(conf) if conf.isdigit() else 0,
+    "impact": os.environ.get("OG_IMPACT", ""),
+    "remediation": os.environ.get("OG_REMEDIATION", ""),
+    "wstg_id": os.environ.get("OG_WSTG", ""),
+    "status": "confirmed",
+    "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+}
+findings.append(finding)
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(findings, f, indent=2)
+print(json.dumps({"saved": fid, "title": finding["title"], "severity": finding["severity"]}))
+PY
+  run_json_helper "$helper" OG_DIR="$dir" OG_TITLE="$title" OG_SEVERITY="$severity" \
+    OG_MODULE="$module" OG_URL="$url" OG_EVIDENCE="$evidence" OG_CONFIDENCE="${confidence:-0}" \
+    OG_IMPACT="$impact" OG_REMEDIATION="$remediation" OG_WSTG="$wstg"
+}
+
+cmd_finding_list() {
+  local dir="" engagement=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      *) die "unknown finding list argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  [[ -f "$dir/findings.json" ]] || { printf '[]\n'; return 0; }
+  local helper
+  read -r -d '' helper <<'PY' || true
+import json, os
+path = os.environ["OG_DIR"] + "/findings.json"
+with open(path, "r", encoding="utf-8") as f:
+    findings = json.load(f)
+for item in findings:
+    print(f"[{item.get('id','?')}] {item.get('severity','?').upper()} {item.get('title','')}")
+print(f"Total: {len(findings)}")
+PY
+  run_json_helper "$helper" OG_DIR="$dir"
+}
+
+cmd_todo_add() {
+  local dir="" engagement="" task="" module="" priority="medium"
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --task) task="${2:-}"; shift 2 ;;
+      --module) module="${2:-}"; shift 2 ;;
+      --priority) priority="${2:-}"; shift 2 ;;
+      *) die "unknown todo add argument: $1" ;;
+    esac
+  done
+  [[ -n "$task" ]] || die 'todo add requires --task'
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  mkdir -p "$dir"
+  [[ -f "$dir/todos.json" ]] || printf '[]\n' > "$dir/todos.json"
+  local helper
+  read -r -d '' helper <<'PY' || true
+import json, os
+from datetime import datetime, timezone
+path = os.environ["OG_DIR"] + "/todos.json"
+with open(path, "r", encoding="utf-8") as f:
+    todos = json.load(f)
+tid = f"T-{len(todos) + 1:03d}"
+todo = {
+    "id": tid,
+    "task": os.environ["OG_TASK"],
+    "module": os.environ.get("OG_MODULE", ""),
+    "priority": os.environ.get("OG_PRIORITY", "medium"),
+    "status": "pending",
+    "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "completed_at": None,
+}
+todos.append(todo)
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(todos, f, indent=2)
+print(json.dumps({"saved": tid, "task": todo["task"]}))
+PY
+  run_json_helper "$helper" OG_DIR="$dir" OG_TASK="$task" OG_MODULE="$module" OG_PRIORITY="$priority"
+}
+
+cmd_todo_list() {
+  local dir="" engagement="" status_filter=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --status) status_filter="${2:-}"; shift 2 ;;
+      *) die "unknown todo list argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  [[ -f "$dir/todos.json" ]] || { printf '[]\n'; return 0; }
+  local helper
+  read -r -d '' helper <<'PY' || true
+import json, os
+path = os.environ["OG_DIR"] + "/todos.json"
+sf = os.environ.get("OG_STATUS", "")
+with open(path, "r", encoding="utf-8") as f:
+    todos = json.load(f)
+shown = 0
+for item in todos:
+    if sf and item.get("status") != sf:
+        continue
+    shown += 1
+    print(f"[{item.get('id','?')}] {item.get('status','?')} {item.get('priority','medium')} {item.get('task','')}")
+print(f"Total: {shown}/{len(todos)}")
+PY
+  run_json_helper "$helper" OG_DIR="$dir" OG_STATUS="$status_filter"
+}
+
+cmd_todo_update() {
+  local dir="" engagement="" id="" status="" notes=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --id) id="${2:-}"; shift 2 ;;
+      --status) status="${2:-}"; shift 2 ;;
+      --notes) notes="${2:-}"; shift 2 ;;
+      *) die "unknown todo update argument: $1" ;;
+    esac
+  done
+  [[ -n "$id" && -n "$status" ]] || die 'todo update requires --id and --status'
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  [[ -f "$dir/todos.json" ]] || die "todos.json not found in $dir"
+  local helper
+  read -r -d '' helper <<'PY' || true
+import json, os
+from datetime import datetime, timezone
+path = os.environ["OG_DIR"] + "/todos.json"
+with open(path, "r", encoding="utf-8") as f:
+    todos = json.load(f)
 found = False
-for t in f:
-    if t['id'] == os.environ['OG_ID']:
-        t['status'] = os.environ['OG_STATUS']
-        if os.environ['OG_NOTES']: t['notes'] = os.environ['OG_NOTES']
-        if os.environ['OG_STATUS'] in ('done','skip'): t['completed_at'] = datetime.now(timezone.utc).isoformat()
+for item in todos:
+    if item.get("id") == os.environ["OG_ID"]:
+        item["status"] = os.environ["OG_NEW_STATUS"]
+        if os.environ.get("OG_NOTES"):
+            item["notes"] = os.environ["OG_NOTES"]
+        if item["status"] in ("done", "skip", "cancelled"):
+            item["completed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         found = True
         break
 if not found:
-    print(json.dumps({'error': 'todo not found', 'id': os.environ['OG_ID']}))
-else:
-    json.dump(f, open(os.environ['OG_FILE'], 'w'), indent=2)
-    print(json.dumps({'updated': os.environ['OG_ID'], 'status': os.environ['OG_STATUS']}))
-"
+    raise SystemExit(f"todo not found: {os.environ['OG_ID']}")
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(todos, f, indent=2)
+print(json.dumps({"updated": os.environ["OG_ID"], "status": os.environ["OG_NEW_STATUS"]}))
+PY
+  run_json_helper "$helper" OG_DIR="$dir" OG_ID="$id" OG_NEW_STATUS="$status" OG_NOTES="$notes"
 }
 
-# ─── Report Generation ───────────────────────────────────────────────────────
-cmd_generate_report() {
-  local dir=""
+cmd_report_generate() {
+  local dir="" engagement=""
   while (($#)); do
     case "$1" in
-      --dir) dir="$2"; shift 2 ;;
-      *) shift ;;
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      *) die "unknown report generate argument: $1" ;;
     esac
   done
-  [[ -n "$dir" ]] || die "generate-report requires --dir"
-
-  local report="$dir/reports/report-$(date +%Y%m%d-%H%M%S).md"
-  OG_DIR="$dir" OG_REPORT="$report" python3 -c "
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  mkdir -p "$dir/reports"
+  local helper
+  read -r -d '' helper <<'PY' || true
 import json, os
 from datetime import datetime, timezone
-
-d = os.environ['OG_DIR']
-report_path = os.environ['OG_REPORT']
-
-eng = json.load(open(d + '/engagement.json')) if os.path.exists(d + '/engagement.json') else {}
-findings = json.load(open(d + '/findings.json')) if os.path.exists(d + '/findings.json') else []
-todos = json.load(open(d + '/todos.json')) if os.path.exists(d + '/todos.json') else []
-
-sev_order = {'critical':0,'high':1,'medium':2,'low':3,'info':4}
-findings.sort(key=lambda f: sev_order.get(f.get('severity','info'),5))
-
-badges = {'critical':'🔴','high':'🟠','medium':'🟡','low':'🔵','info':'⚪'}
-lines = []
-lines.append('# OpenGhost Penetration Test Report')
-lines.append(f\"\"\"
-**Target**: {eng.get('target_url','N/A')}
-**Date**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}
-**Status**: {eng.get('status','N/A')}
-\"\"\")
-
-lines.append('## Executive Summary')
-counts = {}
+d = os.environ["OG_DIR"]
+eng_path = d + "/engagement.json"
+findings_path = d + "/findings.json"
+todos_path = d + "/todos.json"
+eng = json.load(open(eng_path, encoding="utf-8")) if os.path.exists(eng_path) else {}
+findings = json.load(open(findings_path, encoding="utf-8")) if os.path.exists(findings_path) else []
+todos = json.load(open(todos_path, encoding="utf-8")) if os.path.exists(todos_path) else []
+sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+findings.sort(key=lambda x: sev_order.get(x.get("severity", "info"), 5))
+report_path = f"{d}/reports/report-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.md"
+lines = ["# OpenGhost Penetration Test Report", ""]
+lines.append(f"Target: {eng.get('target_url', 'N/A')}")
+lines.append(f"Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+lines.append("")
+lines.append("## Executive Summary")
+lines.append(f"Total findings: {len(findings)}")
+for sev in ["critical", "high", "medium", "low", "info"]:
+    count = sum(1 for f in findings if f.get("severity") == sev)
+    if count:
+        lines.append(f"- {sev.upper()}: {count}")
+lines.append("")
+lines.append("## Findings")
+if not findings:
+    lines.append("No confirmed findings recorded.")
 for f in findings:
-    s = f.get('severity','info')
-    counts[s] = counts.get(s,0) + 1
-lines.append(f'Total findings: {len(findings)}')
-for s in ['critical','high','medium','low','info']:
-    if counts.get(s,0) > 0:
-        lines.append(f'- {badges.get(s,\"⚪\")} {s.upper()}: {counts[s]}')
-lines.append('')
-
-lines.append('## Findings')
-for f in findings:
-    b = badges.get(f.get('severity','info'),'⚪')
-    lines.append(f\"\"\"
-### {b} {f['id']}: {f['title']}
-
-| Field | Value |
-|-------|-------|
-| Severity | {f.get('severity','N/A').upper()} |
-| Module | {f.get('module','N/A')} |
-| URL | {f.get('url','N/A')} |
-| Confidence | {f.get('confidence',0)}% |
-| WSTG | {f.get('wstg_id','N/A')} |
-
-**Impact**: {f.get('impact','N/A')}
-
-**Remediation**: {f.get('remediation','N/A')}
-\"\"\")
-
-pending = [t for t in todos if t['status']=='pending']
+    lines.append(f"### {f.get('id','?')}: {f.get('title','')}")
+    lines.append("")
+    lines.append(f"Severity: {f.get('severity','N/A').upper()}")
+    lines.append(f"Module: {f.get('module','N/A')}")
+    lines.append(f"URL: {f.get('url','N/A')}")
+    lines.append(f"Confidence: {f.get('confidence',0)}%")
+    lines.append("")
+    lines.append(f"Impact: {f.get('impact','N/A')}")
+    lines.append(f"Remediation: {f.get('remediation','N/A')}")
+    lines.append("")
+pending = [t for t in todos if t.get("status") == "pending"]
 if pending:
-    lines.append('## Outstanding Testing Items')
+    lines.append("## Outstanding Testing Items")
     for t in pending:
-        lines.append(f\"- ⬜ {t['task']} ({t.get('module','')}) — {t.get('priority','medium')}\")
-
-with open(report_path, 'w') as f:
-    f.write('\\n'.join(lines))
-print(f'Report generated: {report_path}')
-"
+        lines.append(f"- [{t.get('id','?')}] {t.get('task','')} ({t.get('module','')})")
+with open(report_path, "w", encoding="utf-8") as f:
+    f.write("\n".join(lines))
+print(f"report generated: {report_path}")
+PY
+  run_json_helper "$helper" OG_DIR="$dir"
 }
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+cmd_engagement() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'engagement requires: init'
+  shift || true
+  case "$subcommand" in
+    init) cmd_engagement_init "$@" ;;
+    *) die "unknown engagement subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_finding() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'finding requires: add or list'
+  shift || true
+  case "$subcommand" in
+    add) cmd_finding_add "$@" ;;
+    list) cmd_finding_list "$@" ;;
+    *) die "unknown finding subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_todo() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'todo requires: add, list, or update'
+  shift || true
+  case "$subcommand" in
+    add) cmd_todo_add "$@" ;;
+    list) cmd_todo_list "$@" ;;
+    update) cmd_todo_update "$@" ;;
+    *) die "unknown todo subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_report() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'report requires: generate'
+  shift || true
+  case "$subcommand" in
+    generate) cmd_report_generate "$@" ;;
+    *) die "unknown report subcommand: $subcommand" ;;
+  esac
+}
+
 main() {
   local command="${1:-}"
   [[ -n "$command" ]] || { usage; exit 1; }
   shift || true
 
   case "$command" in
-    preflight)        cmd_preflight "$@" ;;
-    start)            start_runtime "$@" ;;
-    status)           cmd_status "$@" ;;
-    stop)             cmd_stop "$@" ;;
-    init)             cmd_init "$@" ;;
-    exec-tool)        cmd_exec_tool "$@" ;;
-    exec-bash)        cmd_exec_bash "$@" ;;
-    exec-python)      cmd_exec_python "$@" ;;
-    save-finding)     cmd_save_finding "$@" ;;
-    get-findings)     cmd_get_findings "$@" ;;
-    save-todo)        cmd_save_todo "$@" ;;
-    get-todos)        cmd_get_todos "$@" ;;
-    update-todo)      cmd_update_todo "$@" ;;
-    generate-report)  cmd_generate_report "$@" ;;
-    -h|--help|help)   usage ;;
-    *)                usage; die "unknown command: $command" ;;
+    sandbox) cmd_sandbox "$@" ;;
+    run) cmd_run "$@" ;;
+    bash) cmd_bash "$@" ;;
+    python) cmd_python "$@" ;;
+    engagement) cmd_engagement "$@" ;;
+    finding) cmd_finding "$@" ;;
+    todo) cmd_todo "$@" ;;
+    report) cmd_report "$@" ;;
+
+    preflight) sandbox_status "$@" ;;
+    start) sandbox_start "$@" ;;
+    status) sandbox_status "$@" ;;
+    stop) sandbox_stop "$@" ;;
+    init) cmd_engagement_init "$@" ;;
+    exec-tool) cmd_run "$@" ;;
+    exec-bash) cmd_bash "$@" ;;
+    exec-python) cmd_python code "$@" ;;
+    save-finding) cmd_finding_add "$@" ;;
+    get-findings) cmd_finding_list "$@" ;;
+    save-todo) cmd_todo_add "$@" ;;
+    get-todos) cmd_todo_list "$@" ;;
+    update-todo) cmd_todo_update "$@" ;;
+    generate-report) cmd_report_generate "$@" ;;
+
+    -h|--help|help) usage ;;
+    *) usage; die "unknown command: $command" ;;
   esac
 }
 

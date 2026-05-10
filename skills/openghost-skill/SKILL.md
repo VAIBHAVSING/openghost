@@ -6,8 +6,8 @@ description: >-
   authentication and session testing, access control, injection, API protocols,
   browser policy, HTTP edge cases, business logic, server integrity, evidence
   management, and reporting. All security tooling must be executed through the
-  bundled OpenGhost launcher so tests run inside the Docker sandbox with scope
-  checks, command safety controls, rate limiting, and evidence capture. Use for
+  bundled `openghost` launcher so tests run inside the Docker sandbox with tool
+  allowlisting and host isolation. Use for
   OWASP WSTG assessments, OWASP API Top 10 testing, vulnerability validation,
   authenticated web app pentests, and server configuration/integrity reviews.
 license: Apache-2.0
@@ -30,8 +30,8 @@ You are a senior penetration tester. Use this skill to run a structured, evidenc
 ## Operating Rules
 
 1. **Authorization first** - do not test until the target, allowed hosts, excluded paths, rate limits, and testing window are confirmed.
-2. **Docker only** - run every security tool through `scripts/openghost.sh`. Never run offensive tools directly on the host.
-3. **Scope enforced** - set `OPENGHOST_SCOPE` before testing and stop if a target is outside scope.
+2. **Docker only** - run every security tool through `openghost`. Never run offensive tools directly on the host.
+3. **Scope required** - set `OPENGHOST_SCOPE` before testing and stop if a target is outside scope. The agent must verify scope before each test.
 4. **Use module references** - before testing a vulnerability class, read the matching file under `references/modules/`.
 5. **Hypothesis-driven testing** - follow `references/cognitive-framework.md` and use KNOW / THINK / TEST / VALIDATE before meaningful tests.
 6. **Evidence or it did not happen** - save requests, responses, screenshots, tool output, timestamps, and reproduction steps.
@@ -43,13 +43,15 @@ You are a senior penetration tester. Use this skill to run a structured, evidenc
 ## Required Setup
 
 ```bash
-scripts/openghost.sh preflight
-scripts/openghost.sh start
-scripts/openghost.sh init --url <TARGET_URL> --out ./engagements/<name>
-export OPENGHOST_SCOPE=./engagements/<name>/scope.yaml
+export PATH="$PWD/skills:$PWD/skills/openghost-skill:$PATH"
+openghost sandbox start
+openghost engagement init --url <TARGET_URL> --name <name>
+export OPENGHOST_SCOPE=.openghost/engagements/<name>/scope.yaml
 ```
 
-Edit `./engagements/<name>/scope.yaml` before testing. Include all authorized hosts, ports, excluded paths, excluded hosts, credentials, rate limits, and notes about test accounts.
+If `openghost` is already available, do not modify `PATH`. The `skills/openghost` file is the CLI shim, so adding `skills` to `PATH` lets the agent call `openghost run ...` directly. If this skill is installed without the repository-level shim, adding `skills/openghost-skill` to `PATH` exposes the fallback `openghost` wrapper inside the skill directory.
+
+OpenGhost stores engagement state under `.openghost/engagements/<name>/` and records the latest engagement as active in `.openghost/current`. Edit `.openghost/engagements/<name>/scope.yaml` before testing. Include all authorized hosts, ports, excluded paths, excluded hosts, credentials, rate limits, and notes about test accounts.
 
 ## Workflow
 
@@ -62,12 +64,12 @@ Read `references/workflow.md`, `references/authenticated-testing.md`, and `refer
 3. Identify available test accounts: unauthenticated, user A, user B, privileged user, admin, tenant A, tenant B.
 4. Add todos for each phase:
    ```bash
-   scripts/openghost.sh save-todo --dir ./engagements/<name> --task "Complete surface mapping" --module surface-map --priority high
-   scripts/openghost.sh save-todo --dir ./engagements/<name> --task "Test auth and session management" --module session-auth --priority high
+   openghost todo add --task "Complete surface mapping" --module surface-map --priority high
+   openghost todo add --task "Test auth and session management" --module session-auth --priority high
    ```
 5. Verify the launcher and toolchain:
    ```bash
-   scripts/openghost.sh status
+   openghost sandbox status
    ```
 
 ### Step 2: Surface Mapping
@@ -83,12 +85,12 @@ Read `references/modules/surface-map.md`.
 Useful commands:
 
 ```bash
-scripts/openghost.sh exec-tool nmap -sV -sC -T4 <target>
-scripts/openghost.sh exec-tool nmap -sV -p 80,443,8080,8443,3000,5000,8000,9443 <target>
-scripts/openghost.sh exec-tool nikto -h https://<target>
-scripts/openghost.sh exec-tool katana -u https://<target> -d 3 -jc -silent
-scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
-scripts/openghost.sh exec-bash 'subfinder -d <domain> -silent | httpx -silent -status-code -title'
+openghost run nmap -sV -sC -T4 <target>
+openghost run nmap -sV -p 80,443,8080,8443,3000,5000,8000,9443 <target>
+openghost run nikto -h https://<target>
+openghost run katana -u https://<target> -d 3 -jc -silent
+openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
+openghost bash 'subfinder -d <domain> -silent | httpx -silent -status-code -title'
 ```
 
 ### Step 3: Server Integrity
@@ -104,9 +106,9 @@ Read `references/modules/server-integrity.md`.
 Useful commands:
 
 ```bash
-scripts/openghost.sh exec-tool testssl.sh --quiet https://<target>
-scripts/openghost.sh exec-bash 'curl -s -I https://<target> | grep -iE "(strict-transport|content-security|x-frame|x-content-type|referrer-policy|permissions-policy|server|x-powered|set-cookie)"'
-scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt -mc 200,401,403 -e .bak,.old,.conf,.env,.sql,.zip,.map
+openghost run testssl.sh --quiet https://<target>
+openghost bash 'curl -s -I https://<target> | grep -iE "(strict-transport|content-security|x-frame|x-content-type|referrer-policy|permissions-policy|server|x-powered|set-cookie)"'
+openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt -mc 200,401,403 -e .bak,.old,.conf,.env,.sql,.zip,.map
 ```
 
 ### Step 4: Authentication and Session Testing
@@ -192,7 +194,7 @@ Read `references/reporting.md`.
 
 1. Save confirmed findings immediately:
    ```bash
-   scripts/openghost.sh save-finding --dir ./engagements/<name> \
+   openghost finding add \
      --title "SQL Injection in /api/users id parameter" \
      --severity high \
      --module injection \
@@ -205,16 +207,16 @@ Read `references/reporting.md`.
    ```
 2. List findings and todos:
    ```bash
-   scripts/openghost.sh get-findings --dir ./engagements/<name>
-   scripts/openghost.sh get-todos --dir ./engagements/<name>
+   openghost finding list
+   openghost todo list
    ```
 3. Generate the report:
    ```bash
-   scripts/openghost.sh generate-report --dir ./engagements/<name>
+   openghost report generate
    ```
 4. Stop runtime when finished:
    ```bash
-   scripts/openghost.sh stop
+   openghost sandbox stop
    ```
 
 ## Module Selection

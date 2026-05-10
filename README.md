@@ -6,15 +6,17 @@ This repo contains one standalone Agent Skill: `skills/openghost-skill`. The ski
 
 - `skills/openghost-skill`
   The skill package: `SKILL.md`, module references, workflow guidance, reporting guidance, and operational scripts.
-- `Dockerfile`
-  The isolated runtime image with tools such as OWASP ZAP, `nmap`, `nuclei`, `ffuf`, and `sqlmap`.
-- `runtime/`
-  Internal runtime entrypoint and healthcheck scripts used by the launcher.
+- `skills/openghost`
+  The skill-local launcher. It starts the sandbox and runs all tools inside Docker. The root `./openghost` file forwards here for convenience.
+- `skills/openghost-skill/openghost`
+  Standalone launcher kept inside the skill package for Agent Skills installs that copy only `openghost-skill`.
+- `developer/docker`
+  Developer-only sandbox image source used to publish `ghcr.io/openghost/openghost-sandbox:latest`. Normal skill users do not build this; the launcher pulls the GHCR image.
 
 ## Main Entry
 
 ```bash
-./skills/openghost-skill/scripts/openghost-skill.sh preflight
-./skills/openghost-skill/scripts/openghost-skill.sh start
-./skills/openghost-skill/scripts/openghost-skill.sh exec-tool nmap scanme.nmap.org
+./skills/openghost sandbox start
+./skills/openghost run nmap scanme.nmap.org
+./skills/openghost python code 'print("hello from sandbox")'
 ```

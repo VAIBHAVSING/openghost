@@ -24,7 +24,7 @@ gemini "Read skills/openghost-skill/SKILL.md and run a web pentest on https://ta
 ## Any Other Agent
 Point the agent to `SKILL.md` — it contains everything needed to self-guide:
 - Operating rules and safety constraints
-- Tool execution via `scripts/openghost.sh`
+- Tool execution via the `openghost` launcher on `PATH`
 - Module order and selection criteria
 - Finding/todo management commands
 - Links to deep reference docs per module

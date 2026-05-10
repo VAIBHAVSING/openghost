@@ -3,30 +3,23 @@ set -euo pipefail
 
 required_tools=(
   bash
+  python3
   curl
   jq
-  python3
-  git
   nmap
-  ffuf
-  nuclei
-  subfinder
-  httpx
-  katana
   sqlmap
-  nikto
-  dirsearch
-  jwt_tool
-  newman
-  wscat
-  mitmproxy
-  wafw00f
-  testssl.sh
-  zap.sh
+  nuclei
+  ffuf
+  httpx
+  subfinder
+  katana
+  hashcat
+  chromium
 )
 
+missing=0
 for tool in "${required_tools[@]}"; do
-  command -v "${tool}" >/dev/null 2>&1 || exit 1
+  command -v "$tool" >/dev/null 2>&1 || missing=1
 done
 
-curl -fsS "http://127.0.0.1:${ZAP_PORT:-8080}/JSON/core/view/version/" >/dev/null 2>&1
+exit "$missing"

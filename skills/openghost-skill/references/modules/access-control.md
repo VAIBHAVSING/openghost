@@ -57,10 +57,10 @@ Example:
 
 ```bash
 # User A token reading user B profile
-scripts/openghost.sh exec-bash 'curl -s -H "Authorization: Bearer <USER_A_TOKEN>" https://<target>/api/users/<USER_B_ID>/profile | jq .'
+openghost bash 'curl -s -H "Authorization: Bearer <USER_A_TOKEN>" https://<target>/api/users/<USER_B_ID>/profile | jq .'
 
 # Write-based IDOR
-scripts/openghost.sh exec-bash 'curl -s -X PATCH -H "Authorization: Bearer <USER_A_TOKEN>" -H "Content-Type: application/json" -d "{\"display_name\":\"changed-by-test\"}" https://<target>/api/users/<USER_B_ID>/profile'
+openghost bash 'curl -s -X PATCH -H "Authorization: Bearer <USER_A_TOKEN>" -H "Content-Type: application/json" -d "{\"display_name\":\"changed-by-test\"}" https://<target>/api/users/<USER_B_ID>/profile'
 ```
 
 ### Common IDOR Locations
@@ -94,13 +94,13 @@ BFLA is authorization failure at the action/function level.
 
 ```bash
 # Admin list with regular token
-scripts/openghost.sh exec-bash 'curl -s -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/admin/users'
+openghost bash 'curl -s -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/admin/users'
 
 # Privileged delete with regular token
-scripts/openghost.sh exec-bash 'curl -s -X DELETE -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/users/<id>'
+openghost bash 'curl -s -X DELETE -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/users/<id>'
 
 # Method override
-scripts/openghost.sh exec-bash 'curl -s -X POST -H "X-HTTP-Method-Override: DELETE" -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/users/<id>'
+openghost bash 'curl -s -X POST -H "X-HTTP-Method-Override: DELETE" -H "Authorization: Bearer <USER_TOKEN>" https://<target>/api/users/<id>'
 ```
 
 High-value privileged actions:
@@ -153,7 +153,7 @@ Payload fields:
 Example:
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -X PATCH -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d "{\"name\":\"test\",\"role\":\"admin\",\"isAdmin\":true}" https://<target>/api/users/me | jq .'
+openghost bash 'curl -s -X PATCH -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d "{\"name\":\"test\",\"role\":\"admin\",\"isAdmin\":true}" https://<target>/api/users/me | jq .'
 ```
 
 ### Framework Notes
@@ -171,8 +171,8 @@ APIs often return more fields than the UI displays.
 Test:
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -H "Authorization: Bearer <TOKEN>" https://<target>/api/users/me | jq .'
-scripts/openghost.sh exec-bash 'curl -s -H "Authorization: Bearer <TOKEN>" https://<target>/api/users | jq .[0]'
+openghost bash 'curl -s -H "Authorization: Bearer <TOKEN>" https://<target>/api/users/me | jq .'
+openghost bash 'curl -s -H "Authorization: Bearer <TOKEN>" https://<target>/api/users | jq .[0]'
 ```
 
 Sensitive fields:
@@ -217,8 +217,8 @@ Report only when redirect reaches attacker-controlled destination or enables a m
 ## Forced Browsing and Path Authorization
 
 ```bash
-scripts/openghost.sh exec-tool ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
-scripts/openghost.sh exec-tool ffuf -u https://<target>/api/FUZZ -w /usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt -mc 200,401,403
+openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
+openghost run ffuf -u https://<target>/api/FUZZ -w /usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt -mc 200,401,403
 ```
 
 Test discovered paths with:

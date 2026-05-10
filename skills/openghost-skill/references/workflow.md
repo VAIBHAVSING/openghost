@@ -10,16 +10,16 @@ Mandatory before testing.
 2. Confirm allowed hosts, IPs, ports, APIs, credentials, exclusions, test window, rate limits, and production safety constraints.
 3. Start runtime and create engagement:
    ```bash
-   scripts/openghost.sh preflight
-   scripts/openghost.sh start
-   scripts/openghost.sh init --url <target> --out ./engagements/<name>
-   export OPENGHOST_SCOPE=./engagements/<name>/scope.yaml
+   openghost sandbox status
+   openghost sandbox start
+   openghost engagement init --url <target> --name <name>
+   export OPENGHOST_SCOPE=.openghost/engagements/<name>/scope.yaml
    ```
 4. Edit `scope.yaml` before testing.
 5. Create initial todos:
    ```bash
-   scripts/openghost.sh save-todo --dir ./engagements/<name> --task "Validate scope and auth context" --module scope-safety --priority high
-   scripts/openghost.sh save-todo --dir ./engagements/<name> --task "Build endpoint inventory" --module surface-map --priority high
+   openghost todo add --task "Validate scope and auth context" --module scope-safety --priority high
+   openghost todo add --task "Build endpoint inventory" --module surface-map --priority high
    ```
 
 ## Phase 1: Surface Mapping
@@ -130,9 +130,9 @@ Reference: `references/reporting.md`
 4. Record skipped areas and limitations.
 5. Generate report:
    ```bash
-   scripts/openghost.sh generate-report --dir ./engagements/<name>
+   openghost report generate
    ```
 6. Stop runtime:
    ```bash
-   scripts/openghost.sh stop
+   openghost sandbox stop
    ```

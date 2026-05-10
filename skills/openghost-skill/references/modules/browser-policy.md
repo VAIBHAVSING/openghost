@@ -14,14 +14,14 @@ Covers: CORS misconfiguration, CSP bypass, clickjacking, security headers, cooki
 
 ```bash
 # Origin reflection
-scripts/openghost.sh exec-bash 'curl -s -I -H "Origin: https://evil.example" https://<target>/api/user | grep -i "access-control"'
+openghost bash 'curl -s -I -H "Origin: https://evil.example" https://<target>/api/user | grep -i "access-control"'
 
 # Null origin
-scripts/openghost.sh exec-bash 'curl -s -I -H "Origin: null" https://<target>/api/user | grep -i "access-control"'
+openghost bash 'curl -s -I -H "Origin: null" https://<target>/api/user | grep -i "access-control"'
 
 # Regex/subdomain bypasses
-scripts/openghost.sh exec-bash 'curl -s -I -H "Origin: https://target.example.evil.example" https://<target>/api/user | grep -i "access-control"'
-scripts/openghost.sh exec-bash 'curl -s -I -H "Origin: https://evil-target.example" https://<target>/api/user | grep -i "access-control"'
+openghost bash 'curl -s -I -H "Origin: https://target.example.evil.example" https://<target>/api/user | grep -i "access-control"'
+openghost bash 'curl -s -I -H "Origin: https://evil-target.example" https://<target>/api/user | grep -i "access-control"'
 ```
 
 Critical pattern:
@@ -57,7 +57,7 @@ fetch('https://target.example/api/user/profile', {credentials: 'include'})
 ### Collection
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I https://<target> | grep -i content-security-policy'
+openghost bash 'curl -s -I https://<target> | grep -i content-security-policy'
 ```
 
 ### Weak Directives
@@ -94,7 +94,7 @@ CSP bypass is not a finding by itself unless paired with an injection point or a
 ### Detection
 
 ```bash
-scripts/openghost.sh exec-bash 'for p in / /account /settings /billing /transfer /admin; do echo -n "$p: "; curl -s -I https://<target>$p | grep -iE "(x-frame-options|frame-ancestors)" | tr -d "\r\n"; echo; done'
+openghost bash 'for p in / /account /settings /billing /transfer /admin; do echo -n "$p: "; curl -s -I https://<target>$p | grep -iE "(x-frame-options|frame-ancestors)" | tr -d "\r\n"; echo; done'
 ```
 
 ### PoC
@@ -122,7 +122,7 @@ The `sandbox` attribute can block top-level navigation frame-busting scripts.
 ## Security Headers
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I https://<target> | grep -iE "(strict-transport|content-security|x-frame|x-content-type|x-xss|referrer-policy|permissions-policy|cross-origin|set-cookie|server|x-powered)"'
+openghost bash 'curl -s -I https://<target> | grep -iE "(strict-transport|content-security|x-frame|x-content-type|x-xss|referrer-policy|permissions-policy|cross-origin|set-cookie|server|x-powered)"'
 ```
 
 Expected baseline:
@@ -142,7 +142,7 @@ Expected baseline:
 ## Cookie Audit
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s -I https://<target>/login | grep -i set-cookie'
+openghost bash 'curl -s -I https://<target>/login | grep -i set-cookie'
 ```
 
 Check:
@@ -159,7 +159,7 @@ Check:
 Check whether sensitive URLs include tokens or PII and can leak via Referer to third-party resources.
 
 ```bash
-scripts/openghost.sh exec-bash 'curl -s https://<target>/account | grep -oE "https?://[^\"'"'"']+" | head'
+openghost bash 'curl -s https://<target>/account | grep -oE "https?://[^\"'"'"']+" | head'
 ```
 
 High impact when reset tokens, OAuth codes, session identifiers, or PII appear in URLs and third-party requests are present.
