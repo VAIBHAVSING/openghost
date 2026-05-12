@@ -103,7 +103,7 @@ COPY --from=wordlists /SecLists/Discovery/Web-Content/raft-medium-files.txt /usr
 COPY --from=wordlists /SecLists/Discovery/Web-Content/api/api-endpoints.txt /usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt
 COPY --from=wordlists /SecLists/Discovery/DNS/subdomains-top1million-5000.txt /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
 COPY --from=wordlists /SecLists/Fuzzing/LFI/LFI-Jhaddix.txt /usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt
-COPY --from=wordlists /SecLists/Fuzzing/XSS/XSS-Jhaddix.txt /usr/share/seclists/Fuzzing/XSS/XSS-Jhaddix.txt
+COPY --from=wordlists /SecLists/Fuzzing/XSS/robot-friendly/XSS-Jhaddix.txt /usr/share/seclists/Fuzzing/XSS/XSS-Jhaddix.txt
 COPY --from=wordlists /SecLists/Passwords/Common-Credentials/10k-most-common.txt /usr/share/seclists/Passwords/Common-Credentials/10k-most-common.txt
 
 RUN ln -s /usr/share/seclists/Passwords/Common-Credentials/10k-most-common.txt /usr/share/wordlists/rockyou.txt
