@@ -11,7 +11,7 @@ This repo contains one standalone Agent Skill: `skills/openghost-skill`. The ski
 - `skills/openghost-skill/openghost`
   Standalone launcher kept inside the skill package for Agent Skills installs that copy only `openghost-skill`.
 - `developer/docker`
-  Developer-only sandbox image source used to publish `ghcr.io/openghost/openghost-sandbox:latest`. Normal skill users do not build this; the launcher pulls the GHCR image.
+  Developer-only sandbox image source used to publish `ghcr.io/vaibhavsing/openghost-sandbox:latest`. Normal skill users do not build this; the launcher pulls the GHCR image.
 
 ## Main Entry
 

@@ -22,7 +22,7 @@ openghost sandbox update
 openghost sandbox shell
 ```
 
-The launcher pulls `ghcr.io/openghost/openghost-sandbox:latest` by default when the image is missing. Set `OPENGHOST_IMAGE` to override the image. Normal skill users should not build a Dockerfile locally; maintainers build and publish the sandbox from the repo's developer-only Docker context.
+The launcher pulls `ghcr.io/vaibhavsing/openghost-sandbox:latest` by default when the image is missing. Set `OPENGHOST_IMAGE` to override the image. Normal skill users should not build a Dockerfile locally; maintainers build and publish the sandbox from the repo's developer-only Docker context.
 
 ## Execution Commands
 
@@ -59,7 +59,7 @@ OpenGhost stores state under `.openghost/` by default. The latest initialized en
 ## Environment
 
 ```bash
-export OPENGHOST_IMAGE=ghcr.io/openghost/openghost-sandbox:latest
+export OPENGHOST_IMAGE=ghcr.io/vaibhavsing/openghost-sandbox:latest
 export OPENGHOST_CONTAINER=openghost-sandbox
 export OPENGHOST_WORKSPACE="$PWD"
 export OPENGHOST_HOME="$PWD/.openghost"

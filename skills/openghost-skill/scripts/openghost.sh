@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${SKILL_DIR}/../.." && pwd)"
 
-DEFAULT_IMAGE="ghcr.io/openghost/openghost-sandbox:latest"
+DEFAULT_IMAGE="ghcr.io/vaibhavsing/openghost-sandbox:latest"
 IMAGE_NAME="${OPENGHOST_IMAGE:-${DEFAULT_IMAGE}}"
 CONTAINER_NAME="${OPENGHOST_CONTAINER:-openghost-sandbox}"
 WORKSPACE_DIR="${OPENGHOST_WORKSPACE:-${PWD}}"
@@ -88,7 +88,7 @@ Compatibility aliases:
   openghost exec-python 'SCRIPT'        Same as python code 'SCRIPT'
 
 Environment:
-  OPENGHOST_IMAGE                       Default: ghcr.io/openghost/openghost-sandbox:latest
+  OPENGHOST_IMAGE                       Default: ghcr.io/vaibhavsing/openghost-sandbox:latest
   OPENGHOST_CONTAINER                   Default: openghost-sandbox
   OPENGHOST_WORKSPACE                   Default: current working directory
   OPENGHOST_HOME                        Default: $PWD/.openghost
