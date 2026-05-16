@@ -4,4 +4,4 @@
 # The root Dockerfile intentionally delegates to the published sandbox image so
 # accidental root builds behave like normal skill installs.
 
-FROM ghcr.io/openghost/openghost-sandbox:latest
+FROM ghcr.io/vaibhavsing/openghost-sandbox:latest
