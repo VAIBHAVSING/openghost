@@ -8,6 +8,10 @@ REPO_ROOT="$(cd "${SKILL_DIR}/../.." && pwd)"
 DEFAULT_IMAGE="ghcr.io/vaibhavsing/openghost-sandbox:latest"
 IMAGE_NAME="${OPENGHOST_IMAGE:-${DEFAULT_IMAGE}}"
 CONTAINER_NAME="${OPENGHOST_CONTAINER:-openghost-sandbox}"
+ZAP_PORT="${OPENGHOST_ZAP_PORT:-8080}"
+ZAP_SCAN_PORT="${OPENGHOST_ZAP_SCAN_PORT:-8090}"
+ZAP_API_KEY="${OPENGHOST_ZAP_API_KEY:-openghost}"
+ZAP_MAX_MEMORY="${OPENGHOST_ZAP_MAX_MEMORY:-1024m}"
 WORKSPACE_DIR="${OPENGHOST_WORKSPACE:-${PWD}}"
 OPENGHOST_HOME="${OPENGHOST_HOME:-${PWD}/.openghost}"
 DEV_DOCKER_DIR="${REPO_ROOT}/developer/docker"
@@ -68,6 +72,16 @@ Execution:
   openghost python code 'SCRIPT'        Run inline Python inside Docker
   openghost python file PATH [-- args]  Run a workspace Python file inside Docker
   openghost python repl                 Open an interactive Python REPL in Docker
+  openghost zap start                   Start a headless ZAP daemon in the sandbox
+  openghost zap status                  Show ZAP daemon status
+  openghost zap stop                    Stop the ZAP daemon
+  openghost zap proxy-url               Print Playwright proxy URL for ZAP
+  openghost zap baseline --target URL   Run a passive ZAP spider/baseline plan
+  openghost zap api-scan --target SPEC --format openapi|graphql [--target-url URL] [--confirm-active]
+  openghost zap alerts [--format json|md] [--out FILE]
+  openghost zap report [--format json|html|md] [--out FILE]
+  openghost zap plan FILE               Run a ZAP Automation Framework plan
+  openghost browser devtools --url URL [--zap|--proxy URL] [--headed]
 
 Engagement helpers:
   openghost engagement init --url URL [--name NAME] [--out DIR]
@@ -90,6 +104,10 @@ Compatibility aliases:
 Environment:
   OPENGHOST_IMAGE                       Default: ghcr.io/vaibhavsing/openghost-sandbox:latest
   OPENGHOST_CONTAINER                   Default: openghost-sandbox
+  OPENGHOST_ZAP_PORT                    Default: 8080
+  OPENGHOST_ZAP_SCAN_PORT               Default: 8090
+  OPENGHOST_ZAP_API_KEY                 Default: openghost
+  OPENGHOST_ZAP_MAX_MEMORY              Default: 1024m
   OPENGHOST_WORKSPACE                   Default: current working directory
   OPENGHOST_HOME                        Default: $PWD/.openghost
   OPENGHOST_BUILD=1                     Developer-only: build a local Dockerfile
@@ -419,6 +437,416 @@ cmd_python() {
   esac
 }
 
+url_encode() {
+  require_host_tool python3
+  python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
+}
+
+timestamp_slug() {
+  date -u +%Y%m%d-%H%M%S
+}
+
+zap_state_dir() {
+  local dir
+  dir="$(current_engagement_dir)"
+  mkdir -p "$dir/zap"/home "$dir/zap"/logs "$dir/zap"/runs "$dir/zap"/reports
+  printf '%s/zap' "$dir"
+}
+
+zap_api_get() {
+  local path="$1" query="${2:-}" port="${3:-$ZAP_PORT}" key url
+  key="$(url_encode "$ZAP_API_KEY")"
+  url="http://127.0.0.1:${port}${path}?apikey=${key}"
+  if [[ -n "$query" ]]; then
+    url="${url}&${query}"
+  fi
+  docker_exec curl -fsS "$url"
+}
+
+zap_start_impl() {
+  local port="${1:-$ZAP_PORT}" memory="${2:-$ZAP_MAX_MEMORY}" timeout="${3:-60}" quiet="${4:-0}"
+  local zdir home log chome clog qhome qlog qmemory qkey
+  zdir="$(zap_state_dir)"
+  home="$zdir/home"
+  log="$zdir/logs/zap-daemon.log"
+  chome="$(container_path_for_existing "$home")"
+  clog="$(container_path_for_dir "$log")"
+
+  if zap_api_get /JSON/core/view/version/ "" "$port" >/dev/null 2>&1; then
+    [[ "$quiet" == "1" ]] || printf 'zap already running: %s\n' "http://127.0.0.1:${port}"
+    return 0
+  fi
+
+  printf -v qhome '%q' "$chome"
+  printf -v qlog '%q' "$clog"
+  printf -v qmemory '%q' "$memory"
+  printf -v qkey '%q' "$ZAP_API_KEY"
+
+  docker_exec bash -lc "mkdir -p ${qhome} && nohup env ZAP_MAX_MEMORY=${qmemory} zap.sh -daemon -host 127.0.0.1 -port ${port} -dir ${qhome} -silent -config api.disablekey=false -config api.key=${qkey} -config api.addrs.addr.name=127.0.0.1 -config api.addrs.addr.regex=false > ${qlog} 2>&1 &"
+
+  for _ in $(seq 1 "$timeout"); do
+    if zap_api_get /JSON/core/view/version/ "" "$port" >/dev/null 2>&1; then
+      [[ "$quiet" == "1" ]] || printf 'zap started: %s\n' "http://127.0.0.1:${port}"
+      return 0
+    fi
+    sleep 1
+  done
+
+  docker_exec bash -lc "tail -n 80 ${qlog}" >&2 || true
+  die "ZAP did not become ready on 127.0.0.1:${port}"
+}
+
+zap_run_plan() {
+  local plan="$1" run_dir="$2" port="${3:-$ZAP_SCAN_PORT}"
+  local home log cplan chome
+  mkdir -p "$run_dir/home"
+  home="$run_dir/home"
+  log="$run_dir/zap.log"
+  cplan="$(container_path_for_existing "$plan")"
+  chome="$(container_path_for_existing "$home")"
+
+  local rc=0
+  docker_exec zap.sh -cmd -silent -port "$port" -dir "$chome" \
+    -config api.disablekey=true \
+    -autorun "$cplan" > "$log" 2>&1 || rc=$?
+
+  if ((rc != 0)); then
+    tail -n 80 "$log" >&2 || true
+    die "ZAP automation plan failed: $plan"
+  fi
+
+  printf 'zap plan completed: %s\n' "$run_dir"
+}
+
+cmd_zap_start() {
+  local port="$ZAP_PORT" memory="$ZAP_MAX_MEMORY" timeout=60
+  while (($#)); do
+    case "$1" in
+      --port) port="${2:-}"; shift 2 ;;
+      --memory) memory="${2:-}"; shift 2 ;;
+      --timeout) timeout="${2:-}"; shift 2 ;;
+      *) die "unknown zap start argument: $1" ;;
+    esac
+  done
+  zap_start_impl "$port" "$memory" "$timeout" 0
+}
+
+cmd_zap_status() {
+  local port="$ZAP_PORT"
+  while (($#)); do
+    case "$1" in
+      --port) port="${2:-}"; shift 2 ;;
+      *) die "unknown zap status argument: $1" ;;
+    esac
+  done
+  if zap_api_get /JSON/core/view/version/ "" "$port"; then
+    printf '\nzap_status: running\nproxy_url: http://127.0.0.1:%s\n' "$port"
+  else
+    printf 'zap_status: not_running\n'
+  fi
+}
+
+cmd_zap_stop() {
+  local port="$ZAP_PORT"
+  while (($#)); do
+    case "$1" in
+      --port) port="${2:-}"; shift 2 ;;
+      *) die "unknown zap stop argument: $1" ;;
+    esac
+  done
+  zap_api_get /JSON/core/action/shutdown/ "" "$port" >/dev/null 2>&1 || docker_exec bash -lc "pkill -f 'org.zaproxy.zap.ZAP|zap.sh' || true"
+  printf 'zap stopped\n'
+}
+
+cmd_zap_baseline() {
+  local target="" minutes=5 port="$ZAP_SCAN_PORT"
+  while (($#)); do
+    case "$1" in
+      --target) target="${2:-}"; shift 2 ;;
+      --minutes) minutes="${2:-}"; shift 2 ;;
+      --port) port="${2:-}"; shift 2 ;;
+      *) die "unknown zap baseline argument: $1" ;;
+    esac
+  done
+  [[ -n "$target" ]] || die 'zap baseline requires --target URL'
+
+  local zdir run_dir plan crun
+  zdir="$(zap_state_dir)"
+  run_dir="$zdir/runs/baseline-$(timestamp_slug)"
+  mkdir -p "$run_dir"
+  crun="$(container_path_for_existing "$run_dir")"
+  plan="$run_dir/plan.yaml"
+  cat > "$plan" <<PLAN
+env:
+  contexts:
+    - name: OpenGhost
+      urls:
+        - "${target}"
+      includePaths:
+        - "${target}.*"
+jobs:
+  - type: spider
+    parameters:
+      context: OpenGhost
+      url: "${target}"
+      maxDuration: ${minutes}
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 10
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: "${crun}"
+      reportFile: zap-report.json
+      reportTitle: OpenGhost ZAP Baseline
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: "${crun}"
+      reportFile: zap-report.html
+      reportTitle: OpenGhost ZAP Baseline
+  - type: report
+    parameters:
+      template: traditional-md
+      reportDir: "${crun}"
+      reportFile: zap-report.md
+      reportTitle: OpenGhost ZAP Baseline
+PLAN
+  zap_run_plan "$plan" "$run_dir" "$port"
+}
+
+cmd_zap_api_scan() {
+  local target="" format="openapi" target_url="" minutes=5 active=0 port="$ZAP_SCAN_PORT"
+  while (($#)); do
+    case "$1" in
+      --target) target="${2:-}"; shift 2 ;;
+      --format) format="${2:-}"; shift 2 ;;
+      --target-url) target_url="${2:-}"; shift 2 ;;
+      --minutes) minutes="${2:-}"; shift 2 ;;
+      --port) port="${2:-}"; shift 2 ;;
+      --confirm-active) active=1; shift ;;
+      *) die "unknown zap api-scan argument: $1" ;;
+    esac
+  done
+  [[ -n "$target" ]] || die 'zap api-scan requires --target SPEC_OR_ENDPOINT'
+  case "$format" in openapi|graphql) ;; *) die 'zap api-scan --format must be openapi or graphql' ;; esac
+
+  local zdir run_dir plan crun target_value target_key active_job=""
+  zdir="$(zap_state_dir)"
+  run_dir="$zdir/runs/api-${format}-$(timestamp_slug)"
+  mkdir -p "$run_dir"
+  crun="$(container_path_for_existing "$run_dir")"
+  plan="$run_dir/plan.yaml"
+
+  if [[ "$format" == "openapi" ]]; then
+    if [[ -f "$target" ]]; then
+      target_key="apiFile"
+      target_value="$(container_path_for_existing "$target")"
+    else
+      target_key="apiUrl"
+      target_value="$target"
+    fi
+  fi
+
+  if [[ "$active" == "1" ]]; then
+    active_job='  - type: activeScan
+    parameters:
+      context: OpenGhost
+      maxScanDurationInMins: '"${minutes}"
+  fi
+
+  cat > "$plan" <<PLAN
+env:
+  contexts:
+    - name: OpenGhost
+      urls:
+        - "${target_url:-$target}"
+jobs:
+PLAN
+  if [[ "$format" == "openapi" ]]; then
+    cat >> "$plan" <<PLAN
+  - type: openapi
+    parameters:
+      ${target_key}: "${target_value}"
+      targetUrl: "${target_url:-$target}"
+PLAN
+  else
+    cat >> "$plan" <<PLAN
+  - type: graphql
+    parameters:
+      endpoint: "${target}"
+      maxQueryDepth: 5
+PLAN
+  fi
+  cat >> "$plan" <<PLAN
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 10
+${active_job}
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: "${crun}"
+      reportFile: zap-report.json
+      reportTitle: OpenGhost ZAP API Scan
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: "${crun}"
+      reportFile: zap-report.html
+      reportTitle: OpenGhost ZAP API Scan
+  - type: report
+    parameters:
+      template: traditional-md
+      reportDir: "${crun}"
+      reportFile: zap-report.md
+      reportTitle: OpenGhost ZAP API Scan
+PLAN
+  zap_run_plan "$plan" "$run_dir" "$port"
+}
+
+cmd_zap_alerts() {
+  local format="json" out="" port="$ZAP_PORT" tmp zdir
+  while (($#)); do
+    case "$1" in
+      --format) format="${2:-}"; shift 2 ;;
+      --out) out="${2:-}"; shift 2 ;;
+      --port) port="${2:-}"; shift 2 ;;
+      *) die "unknown zap alerts argument: $1" ;;
+    esac
+  done
+  case "$format" in json|md) ;; *) die 'zap alerts --format must be json or md' ;; esac
+  zdir="$(zap_state_dir)"
+  out="${out:-$zdir/reports/alerts.$format}"
+  mkdir -p "$(dirname "$out")"
+  tmp="$(mktemp)"
+  zap_api_get /JSON/core/view/alerts/ "" "$port" > "$tmp"
+  if [[ "$format" == "json" ]]; then
+    cp "$tmp" "$out"
+  else
+    OG_JSON="$tmp" OG_OUT="$out" python3 - <<'PY'
+import json, os
+data = json.load(open(os.environ["OG_JSON"], encoding="utf-8"))
+alerts = data.get("alerts", [])
+lines = ["# ZAP Alerts", ""]
+if not alerts:
+    lines.append("No ZAP alerts returned.")
+for alert in alerts:
+    risk = alert.get("risk", "Unknown")
+    name = alert.get("alert", "Unnamed alert")
+    url = alert.get("url", "")
+    evidence = alert.get("evidence", "")
+    lines += [f"## {risk}: {name}", "", f"- URL: {url}", f"- CWE: {alert.get('cweid', '')}", f"- WASC: {alert.get('wascid', '')}"]
+    if evidence:
+        lines.append(f"- Evidence: {evidence}")
+    lines.append("")
+open(os.environ["OG_OUT"], "w", encoding="utf-8").write("\n".join(lines))
+PY
+  fi
+  rm -f "$tmp"
+  printf 'zap alerts saved: %s\n' "$out"
+}
+
+cmd_zap_report() {
+  local format="json" out="" port="$ZAP_PORT" endpoint zdir
+  while (($#)); do
+    case "$1" in
+      --format) format="${2:-}"; shift 2 ;;
+      --out) out="${2:-}"; shift 2 ;;
+      --port) port="${2:-}"; shift 2 ;;
+      *) die "unknown zap report argument: $1" ;;
+    esac
+  done
+  case "$format" in
+    json) endpoint=/OTHER/core/other/jsonreport/ ;;
+    html) endpoint=/OTHER/core/other/htmlreport/ ;;
+    md) endpoint=/OTHER/core/other/mdreport/ ;;
+    *) die 'zap report --format must be json, html, or md' ;;
+  esac
+  zdir="$(zap_state_dir)"
+  out="${out:-$zdir/reports/zap-report.$format}"
+  mkdir -p "$(dirname "$out")"
+  zap_api_get "$endpoint" "" "$port" > "$out"
+  printf 'zap report saved: %s\n' "$out"
+}
+
+cmd_zap_plan() {
+  (($# == 1)) || die 'zap plan requires a plan file'
+  local plan="$1" zdir run_dir
+  [[ -f "$plan" ]] || die "ZAP plan not found: $plan"
+  zdir="$(zap_state_dir)"
+  run_dir="$zdir/runs/plan-$(timestamp_slug)"
+  mkdir -p "$run_dir"
+  cp "$plan" "$run_dir/plan.yaml"
+  zap_run_plan "$run_dir/plan.yaml" "$run_dir" "$ZAP_SCAN_PORT"
+}
+
+cmd_zap() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'zap requires: start, status, stop, proxy-url, baseline, api-scan, alerts, report, or plan'
+  shift || true
+  case "$subcommand" in
+    start) cmd_zap_start "$@" ;;
+    status) cmd_zap_status "$@" ;;
+    stop) cmd_zap_stop "$@" ;;
+    proxy-url) printf 'http://127.0.0.1:%s\n' "$ZAP_PORT" ;;
+    baseline) cmd_zap_baseline "$@" ;;
+    api-scan) cmd_zap_api_scan "$@" ;;
+    alerts) cmd_zap_alerts "$@" ;;
+    report) cmd_zap_report "$@" ;;
+    plan) cmd_zap_plan "$@" ;;
+    *) die "unknown zap subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_browser_devtools() {
+  local url="" proxy="" use_zap=0 headed=0 wait_ms=3000 name=""
+  while (($#)); do
+    case "$1" in
+      --url) url="${2:-}"; shift 2 ;;
+      --proxy) proxy="${2:-}"; shift 2 ;;
+      --zap) use_zap=1; shift ;;
+      --headed) headed=1; shift ;;
+      --wait-ms) wait_ms="${2:-}"; shift 2 ;;
+      --name) name="${2:-}"; shift 2 ;;
+      *) die "unknown browser devtools argument: $1" ;;
+    esac
+  done
+  [[ -n "$url" ]] || die 'browser devtools requires --url'
+  if [[ "$use_zap" == "1" ]]; then
+    zap_start_impl "$ZAP_PORT" "$ZAP_MAX_MEMORY" 60 1
+    proxy="http://127.0.0.1:${ZAP_PORT}"
+  fi
+
+  local dir out script cout cscript
+  dir="$(current_engagement_dir)"
+  out="$dir/browser/${name:-devtools-$(timestamp_slug)}"
+  mkdir -p "$out"
+  script="$SKILL_DIR/scripts/playwright-zap-capture.py"
+  [[ -f "$script" ]] || die "browser helper not found: $script"
+  cout="$(container_path_for_existing "$out")"
+  cscript="$(container_path_for_existing "$script")"
+
+  local args=(python3 "$cscript" --url "$url" --out "$cout" --wait-ms "$wait_ms")
+  if [[ -n "$proxy" ]]; then
+    args+=(--proxy "$proxy")
+  fi
+  if [[ "$headed" == "1" ]]; then
+    args+=(--headed)
+  fi
+  docker_exec "${args[@]}"
+}
+
+cmd_browser() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'browser requires: devtools'
+  shift || true
+  case "$subcommand" in
+    devtools) cmd_browser_devtools "$@" ;;
+    *) die "unknown browser subcommand: $subcommand" ;;
+  esac
+}
+
 cmd_sandbox() {
   local subcommand="${1:-}"
   [[ -n "$subcommand" ]] || die 'sandbox requires: start, status, stop, logs, pull, update, or shell'
@@ -458,7 +886,8 @@ cmd_engagement_init() {
 
   mkdir -p "$(state_root_abs)/engagements" "$(state_root_abs)/cache" "$(state_root_abs)/tmp"
   mkdir -p "$out"/notes "$out"/evidence/http "$out"/evidence/screenshots "$out"/evidence/raw \
-    "$out"/findings "$out"/reports "$out"/artifacts "$out"/scripts "$out"/browser "$out"/runs
+    "$out"/findings "$out"/reports "$out"/artifacts "$out"/scripts "$out"/browser "$out"/runs "$out"/traffic \
+    "$out"/zap/home "$out"/zap/logs "$out"/zap/runs "$out"/zap/reports
 
   if [[ ! -f "$(state_root_abs)/config.json" ]]; then
     printf '{"version":"1","created_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(state_root_abs)/config.json"
@@ -802,6 +1231,8 @@ main() {
     run) cmd_run "$@" ;;
     bash) cmd_bash "$@" ;;
     python) cmd_python "$@" ;;
+    zap) cmd_zap "$@" ;;
+    browser) cmd_browser "$@" ;;
     engagement) cmd_engagement "$@" ;;
     finding) cmd_finding "$@" ;;
     todo) cmd_todo "$@" ;;

@@ -7,11 +7,15 @@ ARG NUCLEI_VERSION=v3.3.8
 ARG KATANA_VERSION=v1.1.2
 ARG GRPCURL_VERSION=v1.9.2
 ARG WEBSOCAT_VERSION=v1.14.1
+ARG ZAP_VERSION=2.17.0
+ARG ZAP_LINUX_SHA256=efe799aaa3627db683b43f00c9c210aea0b75c00cc8f0a0f0434d12bb3ddde5a
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     PLAYWRIGHT_BROWSERS_PATH=0 \
-    NUCLEI_TEMPLATES=/opt/nuclei-templates
+    NUCLEI_TEMPLATES=/opt/nuclei-templates \
+    ZAP_HOME=/opt/zap \
+    ZAP_MAX_MEMORY=1024m
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
@@ -25,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpcap0.8 \
     netcat-openbsd \
     nmap \
+    openjdk-17-jre-headless \
     openssl \
     ocl-icd-libopencl1 \
     pocl-opencl-icd \
@@ -82,6 +87,17 @@ RUN arch="$(dpkg --print-architecture)" && \
     esac && \
     curl -fsSL "https://github.com/vi/websocat/releases/download/${WEBSOCAT_VERSION}/websocat.${websocat_arch}" -o /usr/local/bin/websocat && \
     chmod +x /usr/local/bin/websocat
+
+RUN set -eux; \
+    tmpdir="$(mktemp -d)"; \
+    curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL \
+      "https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION}/ZAP_${ZAP_VERSION}_Linux.tar.gz" \
+      -o "$tmpdir/zap.tar.gz"; \
+    echo "${ZAP_LINUX_SHA256}  $tmpdir/zap.tar.gz" | sha256sum -c -; \
+    tar -xzf "$tmpdir/zap.tar.gz" -C /opt; \
+    mv "/opt/ZAP_${ZAP_VERSION}" /opt/zap; \
+    ln -s /opt/zap/zap.sh /usr/local/bin/zap.sh; \
+    rm -rf "$tmpdir" /root/.ZAP
 
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
     python3 -m pip install --no-cache-dir \

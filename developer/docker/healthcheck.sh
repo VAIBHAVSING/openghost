@@ -26,6 +26,8 @@ required_tools=(
   wafw00f
   hashcat
   chromium
+  java
+  zap.sh
   websocat
   grpcurl
 )
