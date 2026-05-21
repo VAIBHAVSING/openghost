@@ -27,6 +27,8 @@ required_tools=(
   arjun
   hashcat
   chromium
+  java
+  zap.sh
   websocat
   grpcurl
 )

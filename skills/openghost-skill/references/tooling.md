@@ -32,6 +32,9 @@ openghost bash '<COMMAND>'
 openghost python code '<SCRIPT>'
 openghost python file ./path/to/script.py -- arg1 arg2
 openghost python repl
+openghost zap start
+openghost zap baseline --target <URL>
+openghost browser devtools --url <URL> --zap
 ```
 
 Compatibility aliases still work:
@@ -97,7 +100,9 @@ OPENGHOST_BUILD=1 \
     artifacts/
     scripts/
     browser/
+    zap/
     runs/
+    traffic/
 ```
 
 ## Installed Tool Catalog
@@ -133,6 +138,7 @@ OPENGHOST_BUILD=1 \
 | `jwt_tool` | `openghost run jwt_tool <JWT>` | JWT analysis and attacks |
 | `hashcat` | `openghost run hashcat -m 16500 jwt.txt /usr/share/wordlists/rockyou.txt --quiet` | JWT/HMAC secret cracking, CPU default |
 | `curl` | `openghost bash 'curl -s -i https://<target>/api'` | Manual HTTP |
+| `http` | `openghost run http GET https://<target>/api` | HTTPie CLI for readable HTTP requests |
 | `jq` | `openghost bash 'curl -s https://<target>/api | jq .'` | JSON parsing |
 
 ### Browser and Protocol Testing
@@ -141,10 +147,28 @@ OPENGHOST_BUILD=1 \
 |---|---|---|
 | `chromium` | `openghost python file .openghost/engagements/<name>/scripts/browser.py` | Browser validation through scripts |
 | `playwright` | Python package available inside sandbox | DOM XSS, screenshots, OAuth flows, SPA exploration |
+| `zap` | `openghost zap baseline --target https://<target>` | Headless ZAP DAST, passive baseline, API import, reports |
+| `zap + playwright` | `openghost browser devtools --url https://<target> --zap` | Browser traffic through ZAP with HAR, trace, screenshot, and alerts |
 | `websocat` | `openghost run websocat wss://<target>/ws` | WebSocket testing |
 | `grpcurl` | `openghost run grpcurl -plaintext <target>:<port> list` | gRPC discovery/testing |
 
-OWASP ZAP and Java are intentionally not included in the default sandbox to keep the image lighter. Use `nuclei`, `nikto`, `ffuf`, `katana`, `curl`, and browser scripts for the default workflow.
+ZAP is included in the sandbox because it materially improves DAST output, but agents should use the managed `openghost zap` commands instead of raw `zap.sh`. Read `references/zap-playwright.md` before using ZAP or Playwright proxy workflows.
+
+### ZAP and Browser Commands
+
+```bash
+openghost zap start
+openghost zap status
+openghost zap proxy-url
+openghost browser devtools --url https://<target> --zap
+openghost zap alerts --format json
+openghost zap report --format html
+openghost zap baseline --target https://<target> --minutes 5
+openghost zap api-scan --target https://<target>/openapi.json --format openapi --target-url https://<target>
+openghost zap api-scan --target https://<target>/graphql --format graphql --confirm-active
+```
+
+`baseline` and default `api-scan` are passive. `--confirm-active` is required for active API scanning and must only be used when active testing is in scope.
 
 ## Wordlists
 

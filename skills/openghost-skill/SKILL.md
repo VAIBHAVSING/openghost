@@ -4,17 +4,14 @@ description: >-
   Centralized agent skill for authorized web application and server integrity
   penetration testing. Covers scope setup, reconnaissance, attack-surface mapping,
   authentication and session testing, access control, injection, API protocols,
-  browser policy, HTTP edge cases, business logic, server integrity, evidence
-  management, and reporting. All security tooling must be executed through the
+  browser policy, ZAP-backed DAST, Playwright browser validation, HTTP edge cases,
+  business logic, server integrity, evidence management, and reporting. All
+  security tooling must be executed through the
   bundled `openghost` launcher so tests run inside the Docker sandbox with tool
   allowlisting and host isolation. Use for
   OWASP WSTG assessments, OWASP API Top 10 testing, vulnerability validation,
   authenticated web app pentests, and server configuration/integrity reviews.
 license: Apache-2.0
-compatibility: >-
-  Requires Docker and bash. Works with any AI coding agent that can run shell
-  commands, including Claude Code, Codex CLI, Cursor, Gemini CLI, Aider, and
-  OpenCode.
 metadata:
   author: openghost
   version: "2.0.0"
@@ -26,6 +23,8 @@ metadata:
 # OpenGhost - Central Web Pentest Skill
 
 You are a senior penetration tester. Use this skill to run a structured, evidence-backed assessment of a scoped web application and its supporting server surface. Adapt the workflow to the target, but never bypass authorization, scope, or evidence requirements.
+
+Runtime requirement: Docker and bash.
 
 ## Operating Rules
 
@@ -91,6 +90,7 @@ openghost run nikto -h https://<target>
 openghost run katana -u https://<target> -d 3 -jc -silent
 openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/common.txt -mc 200,301,302,401,403
 openghost bash 'subfinder -d <domain> -silent | httpx -silent -status-code -title'
+openghost zap baseline --target https://<target> --minutes 5
 ```
 
 ### Step 3: Server Integrity
@@ -157,17 +157,25 @@ Test all inputs across URL parameters, path parameters, JSON fields, XML bodies,
 
 ### Step 7: API and Protocol Testing
 
-Read `references/modules/api-protocols.md`.
+Read `references/modules/api-protocols.md` and `references/zap-playwright.md`.
 
 1. REST APIs: test all OWASP API Top 10 classes, including BOLA, broken auth, BOPLA, resource consumption, BFLA, SSRF, misconfiguration, inventory issues, and unsafe API consumption.
 2. GraphQL: introspection, schema inference, depth/alias amplification, batching, field-level auth, resolver injection, error leakage.
 3. WebSocket: origin validation, authentication on handshake and messages, channel authorization, message injection, replay, rate limits.
 4. SOAP/XML: WSDL discovery, SOAPAction spoofing, WS-Security checks, XXE, XML injection.
 5. gRPC: reflection, plaintext services, method discovery, metadata authorization, message tampering.
+6. ZAP API scan: import OpenAPI or GraphQL for DAST coverage; use active mode only when explicitly authorized.
+
+Useful commands:
+
+```bash
+openghost zap api-scan --target https://<target>/openapi.json --format openapi --target-url https://<target>
+openghost zap api-scan --target https://<target>/graphql --format graphql
+```
 
 ### Step 8: Browser Policy and HTTP Edge
 
-Read `references/modules/browser-policy.md` and `references/modules/http-edge.md`.
+Read `references/modules/browser-policy.md`, `references/modules/http-edge.md`, and `references/zap-playwright.md`.
 
 1. CORS: reflected origins, wildcard with credentials, null origin, regex mistakes, trusted subdomain takeover paths.
 2. CSP: unsafe directives, JSONP/script gadget bypass, `base-uri` gaps, `object-src`, `strict-dynamic`, nonce reuse.
@@ -177,6 +185,15 @@ Read `references/modules/browser-policy.md` and `references/modules/http-edge.md
 6. Cache poisoning/deception: unkeyed headers, reflected host/scheme, static extension deception on authenticated pages.
 7. HTTP parameter pollution: duplicate parameters, arrays, framework precedence, WAF/frontend/backend disagreement.
 8. WAF bypass: fingerprint first, then use encoding, normalization, tamper scripts, HTTP method tricks, and payload splitting.
+
+Useful commands:
+
+```bash
+openghost zap start
+openghost browser devtools --url https://<target> --zap
+openghost zap alerts --format md
+openghost zap report --format html
+```
 
 ### Step 9: Business Logic
 
@@ -273,6 +290,7 @@ Actively look for safe, scoped chains:
 - `references/modules/browser-policy.md` - CORS, CSP, clickjacking, headers
 - `references/modules/http-edge.md` - smuggling, cache poisoning/deception, HPP, WAF bypass
 - `references/modules/business-logic.md` - logic flaws, race conditions, workflow bypass
+- `references/zap-playwright.md` - ZAP DAST, Playwright proxy capture, reports, official docs
 - `references/tooling.md` - tool catalog and launcher reference
 - `references/reporting.md` - evidence, severity, CVSS, report format
 - `references/module-map.md` - module routing rules

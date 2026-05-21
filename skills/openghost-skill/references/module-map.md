@@ -24,7 +24,7 @@ This file defines how the OpenGhost central skill routes a web or server assessm
 - Add `access-control` when multiple users, roles, tenants, object IDs, exports, downloads, or admin functions exist.
 - Add `injection` when inputs reach parameters, bodies, headers, cookies, XML, templates, file parsers, URL fetchers, or upload flows.
 - Add `api-protocols` when OpenAPI, REST, GraphQL, WebSocket, SOAP, XML, gRPC, mobile APIs, or shadow APIs appear.
-- Add `browser-policy` when CORS, CSP, cookies, iframes, browser-only flows, DOM sinks, or SPA behavior matter.
+- Add `browser-policy` when CORS, CSP, cookies, iframes, browser-only flows, DOM sinks, SPA behavior, Playwright validation, or ZAP proxy coverage matter.
 - Add `http-edge` when CDN, cache, WAF, reverse proxy, host routing, HTTP/2 downgrade, or header normalization signals appear.
 - Add `business-logic` when money, orders, quotas, credits, coupons, approvals, invites, subscriptions, entitlements, or one-time tokens exist.
 

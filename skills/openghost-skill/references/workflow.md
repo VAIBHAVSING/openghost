@@ -18,7 +18,7 @@ Mandatory before testing.
 4. Edit `scope.yaml` before testing.
 5. Create initial todos:
    ```bash
-   openghost todo add --task "Validate scope and auth context" --module scope-safety --priority high
+   openghost todo add --task "Validate scope and auth context" --module surface-map --priority high
    openghost todo add --task "Build endpoint inventory" --module surface-map --priority high
    ```
 
@@ -88,24 +88,26 @@ Save findings immediately when confidence reaches 90% or above.
 
 ## Phase 6: API and Protocol Testing
 
-Reference: `references/modules/api-protocols.md`
+References: `references/modules/api-protocols.md`, `references/zap-playwright.md`
 
 1. REST API testing against OWASP API Top 10.
 2. GraphQL testing.
 3. WebSocket testing.
 4. SOAP/XML testing.
 5. gRPC testing if discovered.
+6. Import OpenAPI or GraphQL into ZAP for DAST coverage when specs or endpoints are in scope.
 
 Output: protocol-specific findings and API inventory gaps.
 
 ## Phase 7: Browser Policy and HTTP Edge
 
-References: `references/modules/browser-policy.md`, `references/modules/http-edge.md`
+References: `references/modules/browser-policy.md`, `references/modules/http-edge.md`, `references/zap-playwright.md`
 
 1. CORS, CSP, clickjacking, headers, cookies.
-2. Request smuggling/desync only if architecture and authorization support it.
-3. Cache poisoning/deception when CDN/cache exists.
-4. HPP, method override, host routing, WAF/CDN bypass.
+2. Use Playwright through ZAP for browser-only behavior, SPA routes, authenticated flows, HAR/trace capture, and passive ZAP alerts.
+3. Request smuggling/desync only if architecture and authorization support it.
+4. Cache poisoning/deception when CDN/cache exists.
+5. HPP, method override, host routing, WAF/CDN bypass.
 
 Output: browser/edge findings with safe PoCs.
 

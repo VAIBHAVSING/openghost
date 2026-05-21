@@ -166,6 +166,8 @@ High impact when reset tokens, OAuth codes, session identifiers, or PII appear i
 
 ## Browser Validation
 
+Read `references/zap-playwright.md` before using ZAP-backed browser workflows.
+
 Use browser automation when available for:
 
 - DOM XSS
@@ -176,6 +178,17 @@ Use browser automation when available for:
 - OAuth redirect flows
 
 Evidence should include screenshot, URL, browser action sequence, and request/response where possible.
+
+Recommended capture pattern:
+
+```bash
+openghost zap start
+openghost browser devtools --url https://<target> --zap
+openghost zap alerts --format md
+openghost zap report --format html
+```
+
+Use ZAP alerts as leads. Confirm DOM XSS, CORS reads, clickjacking, CSRF, and SPA route findings with browser evidence before reporting.
 
 ## Reporting Checklist
 
