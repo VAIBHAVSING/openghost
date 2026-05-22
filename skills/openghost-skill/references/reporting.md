@@ -10,8 +10,8 @@ Every finding must include:
 2. **Severity** - Critical, High, Medium, Low, or Info with rationale.
 3. **Confidence** - 90-100 for confirmed findings.
 4. **Affected asset** - host, path, method, parameter, role, tenant, or object.
-5. **Evidence** - exact HTTP request/response, tool output, browser screenshot, or transcript.
-6. **Reproduction steps** - numbered and repeatable with test accounts.
+5. **Evidence** - registered `E-###` records for exact HTTP request/response, tool output, browser screenshot, or transcript.
+6. **Reproduction steps** - `--step` entries that are numbered, repeatable, and safe for test accounts.
 7. **Impact** - what an attacker can do, in business terms.
 8. **Exploitability conditions** - required role, auth, network position, user interaction, timing.
 9. **Remediation** - specific fixes, not generic advice.
@@ -132,27 +132,40 @@ Specific implementation guidance.
 
 ## Evidence Handling
 
-- Store raw requests/responses in `evidence/http/`.
-- Store screenshots in `evidence/screenshots/`.
-- Store tool output in `evidence/raw/`.
+- Add evidence through `openghost evidence add`; the helper copies the file into the v2 evidence store and records metadata in `state/evidence.json`.
+- Use `--kind request`, `--kind response`, `--kind screenshot`, `--kind tool-output`, `--kind transcript`, or another precise kind.
+- Link evidence to a finding with `--finding F-001` when the finding already exists, or add it unlinked first and reference the returned `E-###` from `finding add`.
+- Use `openghost artifact add` for inventories, cookie jars, tool work files, scripts, browser captures, and packages that support the engagement but are not direct proof.
 - Redact secrets, tokens, cookies, PII, and customer data.
 - Keep enough original context to reproduce.
-- Name evidence files descriptively: `F-001-idor-invoice-userb-response.txt`.
+- Name source files descriptively before adding them: `idor-invoice-userb-response.txt`.
 
 ## Save Findings
 
 ```bash
+openghost evidence add \
+  --path /tmp/F-001-idor-invoice-response.txt \
+  --kind response \
+  --title "User A token reads user B invoice" \
+  --module access-control \
+  --url "/api/invoices/1005"
+
 openghost finding add \
   --title "IDOR allows access to other users' invoices" \
   --severity high \
   --module access-control \
   --url "/api/invoices/1005" \
-  --evidence "evidence/http/F-001-idor-invoice.txt" \
+  --evidence E-001 \
   --confidence 95 \
+  --step "Authenticate as user A with a standard test account." \
+  --step "Request /api/invoices/1005, which belongs to user B." \
+  --step "Observe that the response returns user B's invoice data." \
   --impact "Any authenticated user can download another user's invoice by changing the invoice ID" \
   --remediation "Enforce object-level authorization on every invoice read and download query" \
   --wstg "WSTG-ATHZ-04"
 ```
+
+Use `--status draft` or `--status likely` for incomplete leads. Confirmed findings require severity, module, affected asset, confidence of 90 or higher, registered evidence, reproduction steps, impact, and remediation.
 
 ## Report Structure
 
@@ -160,21 +173,22 @@ openghost finding add \
 # Penetration Test Report
 
 ## Executive Summary
-- Scope, dates, methodology
-- Overall risk
+- Target, generated date, confirmed finding count, evidence count, artifact count, open testing items
 - Finding count by severity
 - Highest-impact chains
 
 ## Scope and Limitations
-- Included hosts and roles
-- Exclusions
-- Rate limits
-- Untested areas
+- Embedded `scope.yaml` excerpt
+- Outstanding todos and draft/likely findings
 
 ## Methodology
 - Modules tested
 - Tools used
 - Auth contexts used
+
+## Report Quality Gate
+- Confirmed findings have evidence, reproduction steps, impact, and remediation
+- Any incomplete confirmed finding is listed before delivery
 
 ## Findings
 Sorted by severity, then exploitability.
@@ -194,4 +208,4 @@ Controls that worked well.
 openghost report generate
 ```
 
-Review generated reports manually before delivery.
+The generator writes both `reports/report-<timestamp>.md` and `reports/report-<timestamp>.json`, then records them in `state/reports.json`. Review generated reports manually before delivery.

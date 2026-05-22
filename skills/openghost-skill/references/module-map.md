@@ -48,6 +48,6 @@ An assessment is complete when:
 - scope is documented
 - endpoint inventory exists
 - modules selected by routing rules have been tested or explicitly skipped with reason
-- all confirmed findings have evidence and remediation
+- all confirmed findings have registered evidence IDs, reproduction steps, impact, and remediation
 - outstanding leads are documented as todos or report limitations
 - final report is generated and manually reviewed

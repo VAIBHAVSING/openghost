@@ -15,7 +15,7 @@ Use as many of these as the engagement provides:
 7. tenant B user
 8. API/service account
 
-Record each account, role, tenant, and token/cookie file in `notes/auth-context.md`. Do not store real secrets in final reports.
+Record each account, role, tenant, and token/cookie file in `notes/auth-context.md`. Add cookie jars or auth work files with `openghost artifact add --kind auth`. Do not store real secrets in final reports.
 
 ## Bearer Token
 
@@ -28,10 +28,10 @@ openghost bash 'curl -s -i -H "Authorization: Bearer <TOKEN>" https://<target>/a
 
 ```bash
 # Login and capture cookies
-openghost bash 'curl -s -i -c /workspace/.openghost/engagements/<name>/artifacts/user-a.cookies -d "username=userA&password=<password>" https://<target>/login'
+openghost bash 'curl -s -i -c /workspace/.openghost/engagements/<name>/artifacts/auth/user-a.cookies -d "username=userA&password=<password>" https://<target>/login'
 
 # Use cookies
-openghost bash 'curl -s -i -b /workspace/.openghost/engagements/<name>/artifacts/user-a.cookies https://<target>/dashboard'
+openghost bash 'curl -s -i -b /workspace/.openghost/engagements/<name>/artifacts/auth/user-a.cookies https://<target>/dashboard'
 ```
 
 ## Multi-Role Request Replay
@@ -114,11 +114,11 @@ Track:
 Suggested files:
 
 ```text
-artifacts/user-a.cookies
-artifacts/user-b.cookies
-artifacts/admin.cookies
+artifacts/auth/user-a.cookies
+artifacts/auth/user-b.cookies
+artifacts/auth/admin.cookies
 notes/auth-context.md
-evidence/http/auth-replay-user-a-to-user-b.txt
+evidence/F-001/response/E-001-auth-replay-user-a-to-user-b.txt
 ```
 
-Redact credentials before committing or sharing reports.
+Register auth files with `openghost artifact add --kind auth` and replay proof with `openghost evidence add --kind response`. Redact credentials before committing or sharing reports.
