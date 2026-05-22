@@ -35,7 +35,7 @@ Reference: `references/modules/surface-map.md`
 7. Enumerate subdomains/DNS/CT only if in scope.
 8. Fingerprint technology, CDN, WAF, and auth provider.
 
-Output: host/service map, endpoint inventory, technology stack, discovered auth boundaries.
+Output: host/service map, endpoint inventory, technology stack, discovered auth boundaries. Save normalized inventories with `openghost artifact add` and direct proof with `openghost evidence add`.
 
 ## Phase 2: Server Integrity
 
@@ -84,7 +84,7 @@ Reference: `references/modules/injection.md`
 4. SSTI, XXE/XML, NoSQLi.
 5. Deserialization, traversal, host/email header injection, prototype pollution, type juggling.
 
-Save findings immediately when confidence reaches 90% or above.
+Save findings immediately when confidence reaches 90% or above. Register proof files with `openghost evidence add` first, then reference the returned `E-###` IDs from `openghost finding add`.
 
 ## Phase 6: API and Protocol Testing
 
@@ -129,12 +129,13 @@ Reference: `references/reporting.md`
 1. Review evidence quality.
 2. Deduplicate findings.
 3. Score severity and CVSS.
-4. Record skipped areas and limitations.
-5. Generate report:
+4. Confirm every confirmed finding has registered evidence IDs and numbered reproduction steps.
+5. Record skipped areas and limitations.
+6. Generate Markdown and JSON reports:
    ```bash
    openghost report generate
    ```
-6. Stop runtime:
+7. Stop runtime:
    ```bash
    openghost sandbox stop
    ```

@@ -28,6 +28,10 @@
 
 <Insert findings using finding-template.md.>
 
+## Leads and Draft Findings
+
+<Likely or draft findings that are not confirmed and need more validation.>
+
 ## Positive Security Observations
 
 <Controls that worked well, such as strict authorization, hardened cookies, or strong CSP.>
@@ -42,4 +46,4 @@
 
 ## Appendix
 
-<Tool versions, evidence index, endpoint inventory, scope file, and raw evidence references.>
+<Tool versions, structured evidence index, artifact index, endpoint inventory, scope file, and raw evidence references.>
