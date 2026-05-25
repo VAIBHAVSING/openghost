@@ -32,6 +32,10 @@ openghost bash '<COMMAND>'
 openghost python code '<SCRIPT>'
 openghost python file ./path/to/script.py -- arg1 arg2
 openghost python repl
+openghost script list
+openghost script show api-inventory
+openghost script copy api-inventory
+openghost script run api-inventory -- --target-url https://<target>
 openghost zap start
 openghost zap baseline --target <URL>
 openghost browser devtools --url <URL> --zap
@@ -63,6 +67,29 @@ openghost report list
 ```
 
 OpenGhost stores v2 state under `.openghost/` by default. The latest initialized engagement is active, so `evidence`, `artifact`, `finding`, `todo`, and `report` commands can omit `--dir`. Use `--engagement <name>` to target another engagement or `--dir <path>` for custom paths. Legacy v1 engagement directories are not migrated; create a fresh v2 engagement with `openghost engagement init`.
+
+## Pentest Script Templates
+
+Bundled Python templates live in `skills/openghost-skill/scripts/pentest/`. They are adapted from Apache-2.0 Anthropic-Cybersecurity-Skills script patterns and constrained for OpenGhost scope validation, Docker execution, and evidence output.
+
+```bash
+openghost script list
+openghost script show xss-check
+openghost script run web-baseline -- --target-url https://<target>
+openghost script copy bola-check
+openghost python file .openghost/engagements/<name>/scripts/bola_check.py -- --base-url https://<target> --token <TOKEN> --endpoints '/api/orders/{id}' --ids 1001,1002
+```
+
+Use `script run` for an unchanged stock template. Use `script copy` before changing logic for a target; copied files and `og_pentest.py` are placed in the active engagement `scripts/` directory. Template findings are signals requiring manual validation before `openghost finding add`.
+
+Current templates:
+
+```text
+web-baseline, api-inventory, api-owasp-top10, bola-check, bfla-check,
+mass-assignment-check, xss-check, cors-check, jwt-check, graphql-check,
+websocket-check, hpp-check, forced-browsing-check, sqli-probe,
+nosqli-probe, cache-check, vuln-triage
+```
 
 ## Environment
 
@@ -230,6 +257,13 @@ openghost bash 'curl -s -i -X POST -H "Content-Type: application/json" -H "Autho
 
 ```bash
 openghost python file .openghost/engagements/<name>/scripts/browser-check.py
+```
+
+### Script Template Copy
+
+```bash
+openghost script copy api-inventory
+openghost python file .openghost/engagements/<name>/scripts/api_inventory.py -- --target-url https://<target>
 ```
 
 ## When To Use Raw Bash
