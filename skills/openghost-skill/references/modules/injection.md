@@ -27,6 +27,12 @@ Test all input channels:
 
 ## SQL Injection
 
+Template helper:
+
+```bash
+openghost script run sqli-probe -- --url 'https://<target>/search' --params q id
+```
+
 ### Detection
 
 Payload classes:
@@ -109,6 +115,12 @@ Do not dump bulk production data. Extract schema and one redacted sample if auth
 5. Use sqlmap `--second-url` only when authorized.
 
 ## Cross-Site Scripting
+
+Template helper:
+
+```bash
+openghost script run xss-check -- --base-url https://<target> --params '/search?q=FUZZ'
+```
 
 ### Input and Output Mapping
 
@@ -337,6 +349,12 @@ Accept: application/xml
 ```
 
 ## NoSQL Injection
+
+Template helper:
+
+```bash
+openghost script run nosqli-probe -- --url https://<target>/api/search --field q
+```
 
 ### MongoDB Auth Bypass
 
