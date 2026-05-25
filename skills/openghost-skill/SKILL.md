@@ -52,6 +52,20 @@ If `openghost` is already available, do not modify `PATH`. The `skills/openghost
 
 OpenGhost stores v2 engagement state under `.openghost/engagements/<name>/` and records the latest engagement as active in `.openghost/current`. Structured JSON registries live in `state/`; direct proof files live under `evidence/`; supporting inventories, auth files, scripts, browser output, and packages live under `artifacts/`. Edit `.openghost/engagements/<name>/scope.yaml` before testing. Include all authorized hosts, ports, excluded paths, excluded hosts, credentials, rate limits, and notes about test accounts.
 
+## Reusable Script Templates
+
+OpenGhost includes Python pentest script templates adapted from Apache-2.0 Anthropic-Cybersecurity-Skills patterns. The canonical templates stay under the skill package. Run stock templates only through Docker, or copy a template into the active engagement before modifying it:
+
+```bash
+openghost script list
+openghost script show api-inventory
+openghost script run api-inventory -- --target-url https://<target>
+openghost script copy xss-check
+openghost python file .openghost/engagements/<name>/scripts/xss_check.py -- --base-url https://<target> --params '/search?q=FUZZ'
+```
+
+Use copied scripts for target-specific logic, authentication flows, or custom parsing. Keep modified copies under `.openghost/engagements/<name>/scripts/` so they remain engagement data. Script output is evidence to validate, not an automatic confirmed finding.
+
 ## Workflow
 
 ### Step 1: Scope, Auth Context, and Safety
@@ -84,6 +98,7 @@ Read `references/modules/surface-map.md`.
 Useful commands:
 
 ```bash
+openghost script run api-inventory -- --target-url https://<target>
 openghost run nmap -sV -sC -T4 <target>
 openghost run nmap -sV -p 80,443,8080,8443,3000,5000,8000,9443 <target>
 openghost run nikto -h https://<target>
@@ -106,6 +121,7 @@ Read `references/modules/server-integrity.md`.
 Useful commands:
 
 ```bash
+openghost script run web-baseline -- --target-url https://<target>
 openghost run testssl.sh --quiet https://<target>
 openghost bash 'curl -s -I https://<target> | grep -iE "(strict-transport|content-security|x-frame|x-content-type|referrer-policy|permissions-policy|server|x-powered|set-cookie)"'
 openghost run ffuf -u https://<target>/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt -mc 200,401,403 -e .bak,.old,.conf,.env,.sql,.zip,.map
@@ -189,6 +205,7 @@ Read `references/modules/browser-policy.md`, `references/modules/http-edge.md`, 
 Useful commands:
 
 ```bash
+openghost script run cors-check -- --base-url https://<target> --endpoints /api/me /
 openghost zap start
 openghost browser devtools --url https://<target> --zap
 openghost zap alerts --format md

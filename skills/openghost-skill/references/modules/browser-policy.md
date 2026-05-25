@@ -10,6 +10,12 @@ Covers: CORS misconfiguration, CSP bypass, clickjacking, security headers, cooki
 
 ## CORS Misconfiguration
 
+Template helper:
+
+```bash
+openghost script run cors-check -- --base-url https://<target> --endpoints /api/me /
+```
+
 ### Testing
 
 ```bash

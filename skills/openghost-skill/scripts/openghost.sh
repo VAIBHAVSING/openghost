@@ -84,6 +84,12 @@ Execution:
   openghost zap plan FILE               Run a ZAP Automation Framework plan
   openghost browser devtools --url URL [--zap|--proxy URL] [--headed]
 
+Pentest script templates:
+  openghost script list [--json]        List bundled Python pentest templates
+  openghost script show NAME            Show metadata for one template
+  openghost script copy NAME [...]      Copy a template into the active engagement scripts dir
+  openghost script run NAME [-- args]   Run a bundled template inside Docker
+
 Engagement helpers:
   openghost engagement init --url URL [--name NAME] [--out DIR]
   openghost evidence add [--engagement NAME|--dir DIR] --path FILE --kind KIND --title TITLE [...]
@@ -455,6 +461,223 @@ cmd_python() {
     *)
       die "unknown python subcommand: $subcommand"
       ;;
+  esac
+}
+
+script_manifest() {
+  printf '%s/scripts/pentest/manifest.json' "$SKILL_DIR"
+}
+
+script_template_dir() {
+  printf '%s/scripts/pentest' "$SKILL_DIR"
+}
+
+script_lookup() {
+  local name="$1" field="$2"
+  require_host_tool python3
+  python3 - "$(script_manifest)" "$name" "$field" <<'PY'
+import json
+import sys
+
+manifest, name, field = sys.argv[1:4]
+with open(manifest, encoding="utf-8") as fh:
+    data = json.load(fh)
+for item in data.get("scripts", []):
+    if item.get("name") == name:
+        value = item.get(field, "")
+        if isinstance(value, (dict, list)):
+            print(json.dumps(value))
+        else:
+            print(value)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+cmd_script_list() {
+  local json=0
+  while (($#)); do
+    case "$1" in
+      --json) json=1; shift ;;
+      *) die "unknown script list argument: $1" ;;
+    esac
+  done
+
+  [[ -f "$(script_manifest)" ]] || die "script manifest not found: $(script_manifest)"
+  if [[ "$json" == "1" ]]; then
+    cat "$(script_manifest)"
+    return 0
+  fi
+
+  require_host_tool python3
+  python3 - "$(script_manifest)" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    data = json.load(fh)
+for item in data.get("scripts", []):
+    print(f"{item['name']}\t{item.get('module','')}\t{item.get('safety','')}\t{item.get('description','')}")
+PY
+}
+
+cmd_script_show() {
+  (($# == 1)) || die 'script show requires one template name'
+  local name="$1"
+  require_host_tool python3
+  python3 - "$(script_manifest)" "$name" <<'PY' || die "unknown script template: $name"
+import json
+import sys
+
+manifest, name = sys.argv[1:3]
+with open(manifest, encoding="utf-8") as fh:
+    data = json.load(fh)
+for item in data.get("scripts", []):
+    if item.get("name") != name:
+        continue
+    print(f"name: {item['name']}")
+    print(f"file: {item.get('file','')}")
+    print(f"module: {item.get('module','')}")
+    print(f"safety: {item.get('safety','')}")
+    print(f"source: {item.get('source','')}")
+    print(f"description: {item.get('description','')}")
+    print("")
+    print(f"copy: openghost script copy {item['name']}")
+    print(f"run:  openghost script run {item['name']} -- --help")
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+copy_script_support_files() {
+  local dest_dir="$1"
+  cp "$(script_template_dir)/og_pentest.py" "$dest_dir/og_pentest.py"
+  cp "$(script_template_dir)/NOTICE" "$dest_dir/NOTICE.openghost-pentest-scripts"
+}
+
+cmd_script_copy() {
+  (($# >= 1)) || die 'script copy requires a template name'
+  local name="$1" dir="" engagement="" as_name="" force=0
+  shift
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --as) as_name="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) die "unknown script copy argument: $1" ;;
+    esac
+  done
+
+  local file src target_dir dest_name dest
+  file="$(script_lookup "$name" file)" || die "unknown script template: $name"
+  src="$(script_template_dir)/$file"
+  [[ -f "$src" ]] || die "script template file not found: $src"
+
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  target_dir="$dir/scripts"
+  mkdir -p "$target_dir"
+  dest_name="${as_name:-$file}"
+  [[ "$dest_name" != */* ]] || die '--as must be a filename, not a path'
+  dest="$target_dir/$dest_name"
+  if [[ -e "$dest" && "$force" != "1" ]]; then
+    die "script already exists: $dest (pass --force to overwrite)"
+  fi
+
+  cp "$src" "$dest"
+  chmod +x "$dest"
+  copy_script_support_files "$target_dir"
+  printf 'script copied: %s\n' "$dest"
+}
+
+current_engagement_dir_optional() {
+  local current_file
+  current_file="$(state_root_abs)/current"
+  if [[ -f "$current_file" ]]; then
+    local dir
+    dir="$(<"$current_file")"
+    if [[ -d "$dir" ]]; then
+      printf '%s' "$dir"
+    fi
+  fi
+}
+
+cmd_script_run() {
+  (($# >= 1)) || die 'script run requires a template name'
+  local name="$1" dir="" engagement=""
+  shift
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
+
+  local file src cache script_path container_script scope_set=0
+  local -a env_args=()
+  file="$(script_lookup "$name" file)" || die "unknown script template: $name"
+  src="$(script_template_dir)/$file"
+  [[ -f "$src" ]] || die "script template file not found: $src"
+
+  cache="$(state_root_abs)/cache/scripts/$name"
+  mkdir -p "$cache"
+  cp "$src" "$cache/$file"
+  cp "$(script_template_dir)/og_pentest.py" "$cache/og_pentest.py"
+  cp "$(script_template_dir)/NOTICE" "$cache/NOTICE.openghost-pentest-scripts"
+  script_path="$cache/$file"
+  container_script="$(container_path_for_existing "$script_path")"
+
+  if [[ -n "$dir" || -n "$engagement" ]]; then
+    local resolved_dir container_dir
+    resolved_dir="$(resolve_engagement_dir "$dir" "$engagement")"
+    [[ -d "$resolved_dir" ]] || die "engagement directory not found: $resolved_dir"
+    container_dir="$(container_path_for_existing "$resolved_dir")"
+    env_args+=("OPENGHOST_ENGAGEMENT_DIR=$container_dir")
+    if [[ -f "$resolved_dir/scope.yaml" ]]; then
+      env_args+=("OPENGHOST_SCOPE=$container_dir/scope.yaml")
+      scope_set=1
+    fi
+  else
+    local active_dir
+    active_dir="$(current_engagement_dir_optional)"
+    if [[ -n "$active_dir" ]]; then
+      local active_container_dir
+      active_container_dir="$(container_path_for_existing "$active_dir")"
+      env_args+=("OPENGHOST_ENGAGEMENT_DIR=$active_container_dir")
+      if [[ -f "$active_dir/scope.yaml" ]]; then
+        env_args+=("OPENGHOST_SCOPE=$active_container_dir/scope.yaml")
+        scope_set=1
+      fi
+    fi
+  fi
+
+  if [[ -n "${OPENGHOST_SCOPE:-}" && "$scope_set" != "1" ]]; then
+    if [[ -f "$OPENGHOST_SCOPE" ]]; then
+      local cscope
+      cscope="$(container_path_for_existing "$OPENGHOST_SCOPE")"
+      env_args+=("OPENGHOST_SCOPE=$cscope")
+    else
+      env_args+=("OPENGHOST_SCOPE=$OPENGHOST_SCOPE")
+    fi
+    scope_set=1
+  fi
+  env_args+=("OPENGHOST_SCRIPT_NAME=$name")
+
+  docker_exec env "${env_args[@]}" python3 "$container_script" "$@"
+}
+
+cmd_script() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'script requires: list, show, copy, or run'
+  shift || true
+  case "$subcommand" in
+    list) cmd_script_list "$@" ;;
+    show) cmd_script_show "$@" ;;
+    copy) cmd_script_copy "$@" ;;
+    run) cmd_script_run "$@" ;;
+    *) die "unknown script subcommand: $subcommand" ;;
   esac
 }
 
@@ -1235,6 +1458,7 @@ main() {
     run) cmd_run "$@" ;;
     bash) cmd_bash "$@" ;;
     python) cmd_python "$@" ;;
+    script) cmd_script "$@" ;;
     zap) cmd_zap "$@" ;;
     browser) cmd_browser "$@" ;;
     engagement) cmd_engagement "$@" ;;

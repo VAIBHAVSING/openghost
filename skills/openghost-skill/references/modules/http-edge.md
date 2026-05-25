@@ -2,6 +2,13 @@
 
 Covers: HTTP request smuggling, HTTP/2 downgrade desync, web cache poisoning, web cache deception, HTTP parameter pollution, host routing confusion, WAF/CDN bypass, method override, header normalization, and SSL stripping/HSTS weaknesses.
 
+Template helpers:
+
+```bash
+openghost script run hpp-check -- --url 'https://<target>/search' --params q page
+openghost script run cache-check -- --url https://<target>/account --check-headers
+```
+
 ## Goals
 
 - Test protocol and intermediary behavior when CDNs, WAFs, reverse proxies, load balancers, and app servers disagree.

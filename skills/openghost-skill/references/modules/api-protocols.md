@@ -11,6 +11,8 @@ Covers: REST APIs, OWASP API Top 10, OpenAPI/Swagger, API inventory, rate-limit 
 ## API Inventory
 
 ```bash
+openghost script run api-inventory -- --target-url https://<target>
+
 # Common docs and metadata
 openghost bash 'for p in /swagger.json /openapi.json /api-docs /docs /redoc /v2/api-docs /swagger/v1/swagger.json /.well-known/openapi.yaml /.well-known/openid-configuration; do echo -n "$p: "; curl -s -o /dev/null -w "%{http_code}\n" https://<target>$p; done'
 
@@ -30,6 +32,12 @@ Build an API matrix:
 ```
 
 ## REST API Testing - OWASP API Top 10
+
+For low-impact initial signals:
+
+```bash
+openghost script run api-owasp-top10 -- --base-url https://<target> --token <TOKEN> --endpoints '/api/users/{id}' --ids 101,102
+```
 
 ### API1: Broken Object Level Authorization
 
@@ -140,6 +148,12 @@ Examples:
 ```
 
 ## GraphQL
+
+Template helper:
+
+```bash
+openghost script run graphql-check -- --graphql-url https://<target>/graphql
+```
 
 ### Discovery
 
