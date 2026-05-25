@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAUNCHER="${SCRIPT_DIR}/openghost.sh"
+
 usage() {
   cat <<'USAGE'
 Usage: init-engagement.sh --url URL --out DIR [--scope scope.yaml] [--auth auth.yaml]
@@ -25,16 +28,9 @@ done
 
 [[ -n "${url}" ]] || { printf 'missing --url\n' >&2; exit 1; }
 [[ -n "${out}" ]] || { printf 'missing --out\n' >&2; exit 1; }
+[[ -f "${LAUNCHER}" ]] || { printf 'missing launcher: %s\n' "${LAUNCHER}" >&2; exit 1; }
 
-mkdir -p "${out}/notes" "${out}/evidence/http" "${out}/evidence/screenshots" \
-  "${out}/evidence/raw" "${out}/traffic" "${out}/findings" "${out}/reports" "${out}/artifacts"
-
-cat > "${out}/engagement.yaml" <<EOF
-target_url: "${url}"
-created_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-scope_file: "${scope}"
-auth_file: "${auth}"
-EOF
+"${LAUNCHER}" engagement init --url "${url}" --out "${out}"
 
 [[ -n "${scope}" && -f "${scope}" ]] && cp "${scope}" "${out}/scope.yaml"
 [[ -n "${auth}" && -f "${auth}" ]] && cp "${auth}" "${out}/auth.yaml"

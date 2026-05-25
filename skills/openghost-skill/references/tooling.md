@@ -49,15 +49,20 @@ openghost exec-python '<SCRIPT>'
 
 ```bash
 openghost engagement init --url <TARGET_URL> --name <name>
-openghost finding add --title <title> --severity <severity>
+openghost evidence add --path <file> --kind <request|response|screenshot|tool-output|transcript> --title <title>
+openghost evidence list
+openghost artifact add --path <file> --kind <inventory|auth|tools|scripts|browser|packages> --title <title>
+openghost artifact list
+openghost finding add --title <title> --severity <severity> --evidence E-001 --step <step>
 openghost finding list
 openghost todo add --task <task> --module <module> --priority <priority>
 openghost todo list
 openghost todo update --id <id> --status <status>
 openghost report generate
+openghost report list
 ```
 
-OpenGhost stores state under `.openghost/` by default. The latest initialized engagement is active, so `finding`, `todo`, and `report` commands can omit `--dir`. Use `--engagement <name>` to target another engagement or `--dir <path>` for legacy/custom paths.
+OpenGhost stores v2 state under `.openghost/` by default. The latest initialized engagement is active, so `evidence`, `artifact`, `finding`, `todo`, and `report` commands can omit `--dir`. Use `--engagement <name>` to target another engagement or `--dir <path>` for custom paths. Legacy v1 engagement directories are not migrated; create a fresh v2 engagement with `openghost engagement init`.
 
 ## Environment
 
@@ -90,14 +95,26 @@ OPENGHOST_BUILD=1 \
   engagements/<name>/
     engagement.json
     scope.yaml
-    findings.json
-    todos.json
+    auth.yaml
+    state/
+      findings.json
+      evidence.json
+      artifacts.json
+      todos.json
+      reports.json
+      activity.jsonl
     notes/
-    evidence/http/
-    evidence/raw/
-    evidence/screenshots/
+    evidence/
+      F-001/
+      unlinked/
     reports/
     artifacts/
+      inventory/
+      auth/
+      tools/
+      scripts/
+      browser/
+      packages/
     scripts/
     browser/
     zap/
@@ -193,7 +210,8 @@ Common paths:
 ### Save Raw Evidence
 
 ```bash
-openghost bash 'curl -s -i https://<target>/api/users/1' > .openghost/engagements/<name>/evidence/http/users-1.txt
+openghost bash 'curl -s -i https://<target>/api/users/1' > /tmp/users-1.txt
+openghost evidence add --path /tmp/users-1.txt --kind response --title "GET /api/users/1 response" --module access-control --url /api/users/1
 ```
 
 ### Authenticated Curl

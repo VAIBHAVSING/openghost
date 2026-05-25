@@ -11,14 +11,14 @@ Covers: scope-safe reconnaissance, host discovery, port scanning, web crawling, 
 
 ## Output Artifacts
 
-Save these under `.openghost/engagements/<name>/`:
+Save direct proof with `openghost evidence add` and supporting inventories with `openghost artifact add`:
 
 - `notes/surface-map.md` - hosts, technologies, endpoints, auth boundaries
-- `evidence/raw/nmap-*.txt` - port scan output
-- `evidence/raw/crawl-*.txt` - crawler results
-- `evidence/raw/api-docs-*.json` - OpenAPI/Swagger/GraphQL/WSDL data
-- `artifacts/endpoints.txt` - normalized endpoint list
-- `artifacts/js-files.txt` - JavaScript URLs
+- `openghost evidence add --kind tool-output --path nmap-*.txt --title "Port scan output"`
+- `openghost evidence add --kind tool-output --path crawl-*.txt --title "Crawler output"`
+- `openghost artifact add --kind inventory --path api-docs-*.json --title "API documentation"`
+- `openghost artifact add --kind inventory --path endpoints.txt --title "Normalized endpoint list"`
+- `openghost artifact add --kind inventory --path js-files.txt --title "JavaScript URL inventory"`
 
 ## Port and Service Scanning
 
