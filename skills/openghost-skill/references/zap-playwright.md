@@ -61,7 +61,7 @@ Use for production-safe coverage or first-pass assessment. It spiders and waits 
 openghost zap baseline --target https://<target> --minutes 5
 ```
 
-Artifacts are written under `.openghost/engagements/<name>/zap/runs/`.
+Artifacts are written under `.openghost/engagements/<name>/zap/runs/`. Register important outputs with `openghost artifact add --kind tools` or `openghost evidence add` when they directly prove a finding.
 
 ### API Coverage
 
@@ -78,7 +78,7 @@ After importing APIs, still test authorization manually across roles. ZAP can fi
 
 For each ZAP lead:
 
-1. Save the alert JSON/Markdown and relevant HTTP request/response.
+1. Save the alert JSON/Markdown and relevant HTTP request/response, then register direct proof with `openghost evidence add`.
 2. Reproduce with the smallest safe request, using `curl`, `http`, Playwright, or a custom script.
 3. Confirm exploitability and impact, not only the presence of a header or reflected string.
 4. Add an OpenGhost finding only after evidence reaches high confidence.
@@ -93,8 +93,8 @@ For each ZAP lead:
 
 ## Evidence Checklist
 
-- ZAP alert export and report path.
-- Playwright HAR/trace/screenshot path when browser behavior matters.
-- Exact request/response proving the issue.
+- Registered `E-###` evidence for ZAP alert export and report paths that prove the issue.
+- Registered `E-###` evidence for Playwright HAR/trace/screenshot paths when browser behavior matters.
+- Registered `E-###` evidence for the exact request/response proving the issue.
 - Role/account used for authenticated evidence.
 - Manual validation notes and impact statement.

@@ -84,7 +84,7 @@ openghost run sqlmap -u "https://<target>/page?id=1" --batch --random-agent
 openghost run sqlmap -u "https://<target>/login" --data="username=test&password=test" -p username --batch
 
 # Authenticated request file
-openghost run sqlmap -r /workspace/.openghost/engagements/<name>/evidence/http/request.txt --batch
+openghost run sqlmap -r /workspace/.openghost/engagements/<name>/artifacts/tools/request.txt --batch
 
 # Cookie injection, marker with *
 openghost run sqlmap -u "https://<target>/page" --cookie="session=abc; id=1*" --level 2 --batch

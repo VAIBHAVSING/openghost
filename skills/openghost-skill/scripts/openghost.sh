@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${SKILL_DIR}/../.." && pwd)"
+STATE_HELPER="${SCRIPT_DIR}/openghost-state.py"
 
 DEFAULT_IMAGE="ghcr.io/vaibhavsing/openghost-sandbox:latest"
 IMAGE_NAME="${OPENGHOST_IMAGE:-${DEFAULT_IMAGE}}"
@@ -85,12 +86,17 @@ Execution:
 
 Engagement helpers:
   openghost engagement init --url URL [--name NAME] [--out DIR]
-  openghost finding add [--engagement NAME|--dir DIR] --title TITLE --severity SEVERITY [...]
-  openghost finding list [--engagement NAME|--dir DIR]
-  openghost todo add [--engagement NAME|--dir DIR] --task TASK [--module MOD] [--priority P]
+  openghost evidence add [--engagement NAME|--dir DIR] --path FILE --kind KIND --title TITLE [...]
+  openghost evidence list [--engagement NAME|--dir DIR]
+  openghost artifact add [--engagement NAME|--dir DIR] --path FILE --kind KIND --title TITLE [...]
+  openghost artifact list [--engagement NAME|--dir DIR]
+  openghost finding add [--engagement NAME|--dir DIR] --title TITLE --severity SEVERITY --evidence E-001 --step STEP [...]
+  openghost finding list [--engagement NAME|--dir DIR] [--status STATUS]
+  openghost todo add [--engagement NAME|--dir DIR] --task TASK [--module MOD] [--priority P] [...]
   openghost todo list [--engagement NAME|--dir DIR] [--status STATUS]
   openghost todo update [--engagement NAME|--dir DIR] --id ID --status STATUS [--notes TEXT]
   openghost report generate [--engagement NAME|--dir DIR]
+  openghost report list [--engagement NAME|--dir DIR]
 
 Compatibility aliases:
   openghost preflight                   Same as sandbox status/pull information
@@ -263,6 +269,21 @@ resolve_engagement_dir() {
     engagement_dir_for_name "$engagement"
   else
     current_engagement_dir
+  fi
+}
+
+state_helper() {
+  require_host_tool python3
+  [[ -f "$STATE_HELPER" ]] || die "state helper not found: $STATE_HELPER"
+  python3 "$STATE_HELPER" "$@"
+}
+
+append_arg_if_set() {
+  local -n target_args="$1"
+  local flag="$2"
+  local value="$3"
+  if [[ -n "$value" ]]; then
+    target_args+=("$flag" "$value")
   fi
 }
 
@@ -885,127 +906,197 @@ cmd_engagement_init() {
   fi
 
   mkdir -p "$(state_root_abs)/engagements" "$(state_root_abs)/cache" "$(state_root_abs)/tmp"
-  mkdir -p "$out"/notes "$out"/evidence/http "$out"/evidence/screenshots "$out"/evidence/raw \
-    "$out"/findings "$out"/reports "$out"/artifacts "$out"/scripts "$out"/browser "$out"/runs "$out"/traffic \
-    "$out"/zap/home "$out"/zap/logs "$out"/zap/runs "$out"/zap/reports
 
   if [[ ! -f "$(state_root_abs)/config.json" ]]; then
-    printf '{"version":"1","created_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(state_root_abs)/config.json"
+    printf '{"version":"2","created_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(state_root_abs)/config.json"
   fi
 
-  cat > "$out/scope.yaml" <<SCOPE
-target_url: "$url"
-allowed_hosts:
-  - "$host"
-exclusions:
-  paths:
-    - /logout
-  hosts: []
-rate_limits:
-  requests_per_second: 5
-notes: "Edit this file before testing. Add every authorized host and exclusion."
-SCOPE
-
-  printf '[]\n' > "$out/findings.json"
-  printf '[]\n' > "$out/todos.json"
-  printf '{"name":"%s","target_url":"%s","created_at":"%s","status":"active"}\n' \
-    "$name" "$url" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$out/engagement.json"
+  state_helper engagement-init --dir "$out" --name "$name" --url "$url" --host "$host"
   set_current_engagement "$out"
-  printf 'engagement created: %s\n' "$out"
 }
 
-run_json_helper() {
-  local script="$1"
-  shift
-  require_host_tool python3
-  env OG_HELPER_SCRIPT="$script" "$@" python3 - <<'PY'
-import os
-script = os.environ.pop('OG_HELPER_SCRIPT')
-exec(script)
-PY
+cmd_evidence_add() {
+  local dir="" engagement="" path="" kind="" title="" finding="" module="" url="" method="" role="" command="" notes=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --path) path="${2:-}"; shift 2 ;;
+      --kind) kind="${2:-}"; shift 2 ;;
+      --title) title="${2:-}"; shift 2 ;;
+      --finding) finding="${2:-}"; shift 2 ;;
+      --module) module="${2:-}"; shift 2 ;;
+      --url) url="${2:-}"; shift 2 ;;
+      --method) method="${2:-}"; shift 2 ;;
+      --role) role="${2:-}"; shift 2 ;;
+      --command) command="${2:-}"; shift 2 ;;
+      --notes) notes="${2:-}"; shift 2 ;;
+      *) die "unknown evidence add argument: $1" ;;
+    esac
+  done
+  [[ -n "$path" && -n "$kind" && -n "$title" ]] || die 'evidence add requires --path, --kind, and --title'
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(evidence-add --dir "$dir" --path "$path" --kind "$kind" --title "$title")
+  append_arg_if_set args --finding "$finding"
+  append_arg_if_set args --module "$module"
+  append_arg_if_set args --url "$url"
+  append_arg_if_set args --method "$method"
+  append_arg_if_set args --role "$role"
+  append_arg_if_set args --command "$command"
+  append_arg_if_set args --notes "$notes"
+  state_helper "${args[@]}"
+}
+
+cmd_evidence_list() {
+  local dir="" engagement=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      *) die "unknown evidence list argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  state_helper evidence-list --dir "$dir"
+}
+
+cmd_evidence() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'evidence requires: add or list'
+  shift || true
+  case "$subcommand" in
+    add) cmd_evidence_add "$@" ;;
+    list) cmd_evidence_list "$@" ;;
+    *) die "unknown evidence subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_artifact_add() {
+  local dir="" engagement="" path="" kind="" title="" finding="" module="" notes=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --path) path="${2:-}"; shift 2 ;;
+      --kind) kind="${2:-}"; shift 2 ;;
+      --title) title="${2:-}"; shift 2 ;;
+      --finding) finding="${2:-}"; shift 2 ;;
+      --module) module="${2:-}"; shift 2 ;;
+      --notes) notes="${2:-}"; shift 2 ;;
+      *) die "unknown artifact add argument: $1" ;;
+    esac
+  done
+  [[ -n "$path" && -n "$kind" && -n "$title" ]] || die 'artifact add requires --path, --kind, and --title'
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(artifact-add --dir "$dir" --path "$path" --kind "$kind" --title "$title")
+  append_arg_if_set args --finding "$finding"
+  append_arg_if_set args --module "$module"
+  append_arg_if_set args --notes "$notes"
+  state_helper "${args[@]}"
+}
+
+cmd_artifact_list() {
+  local dir="" engagement=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      *) die "unknown artifact list argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  state_helper artifact-list --dir "$dir"
+}
+
+cmd_artifact() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'artifact requires: add or list'
+  shift || true
+  case "$subcommand" in
+    add) cmd_artifact_add "$@" ;;
+    list) cmd_artifact_list "$@" ;;
+    *) die "unknown artifact subcommand: $subcommand" ;;
+  esac
 }
 
 cmd_finding_add() {
-  local dir="" engagement="" title="" severity="" module="" url="" evidence="" confidence="" impact="" remediation="" wstg=""
+  local dir="" engagement="" title="" severity="" status="confirmed" module="" asset="" url="" method="" path="" parameter="" role="" object="" confidence="" summary="" impact="" exploitability="" remediation="" cvss="" owasp="" cwe="" wstg="" notes=""
+  local evidence_args=() step_args=() reference_args=()
   while (($#)); do
     case "$1" in
       --dir) dir="${2:-}"; shift 2 ;;
       --engagement) engagement="${2:-}"; shift 2 ;;
       --title) title="${2:-}"; shift 2 ;;
       --severity) severity="${2:-}"; shift 2 ;;
+      --status) status="${2:-}"; shift 2 ;;
       --module) module="${2:-}"; shift 2 ;;
+      --asset) asset="${2:-}"; shift 2 ;;
       --url) url="${2:-}"; shift 2 ;;
-      --evidence) evidence="${2:-}"; shift 2 ;;
+      --method) method="${2:-}"; shift 2 ;;
+      --path) path="${2:-}"; shift 2 ;;
+      --parameter) parameter="${2:-}"; shift 2 ;;
+      --role) role="${2:-}"; shift 2 ;;
+      --object) object="${2:-}"; shift 2 ;;
+      --evidence) evidence_args+=(--evidence "${2:-}"); shift 2 ;;
       --confidence) confidence="${2:-}"; shift 2 ;;
+      --summary) summary="${2:-}"; shift 2 ;;
+      --step) step_args+=(--step "${2:-}"); shift 2 ;;
       --impact) impact="${2:-}"; shift 2 ;;
+      --exploitability) exploitability="${2:-}"; shift 2 ;;
       --remediation) remediation="${2:-}"; shift 2 ;;
+      --cvss) cvss="${2:-}"; shift 2 ;;
+      --owasp) owasp="${2:-}"; shift 2 ;;
+      --cwe) cwe="${2:-}"; shift 2 ;;
       --wstg) wstg="${2:-}"; shift 2 ;;
+      --reference) reference_args+=(--reference "${2:-}"); shift 2 ;;
+      --notes) notes="${2:-}"; shift 2 ;;
       *) die "unknown finding add argument: $1" ;;
     esac
   done
   [[ -n "$title" && -n "$severity" ]] || die 'finding add requires --title and --severity'
   dir="$(resolve_engagement_dir "$dir" "$engagement")"
-  mkdir -p "$dir"
-  [[ -f "$dir/findings.json" ]] || printf '[]\n' > "$dir/findings.json"
-  local helper
-  read -r -d '' helper <<'PY' || true
-import json, os
-from datetime import datetime, timezone
-path = os.environ["OG_DIR"] + "/findings.json"
-with open(path, "r", encoding="utf-8") as f:
-    findings = json.load(f)
-fid = f"F-{len(findings) + 1:03d}"
-conf = os.environ.get("OG_CONFIDENCE", "0")
-finding = {
-    "id": fid,
-    "title": os.environ["OG_TITLE"],
-    "severity": os.environ["OG_SEVERITY"],
-    "module": os.environ.get("OG_MODULE", ""),
-    "url": os.environ.get("OG_URL", ""),
-    "evidence": [x for x in os.environ.get("OG_EVIDENCE", "").split(",") if x],
-    "confidence": int(conf) if conf.isdigit() else 0,
-    "impact": os.environ.get("OG_IMPACT", ""),
-    "remediation": os.environ.get("OG_REMEDIATION", ""),
-    "wstg_id": os.environ.get("OG_WSTG", ""),
-    "status": "confirmed",
-    "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-}
-findings.append(finding)
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(findings, f, indent=2)
-print(json.dumps({"saved": fid, "title": finding["title"], "severity": finding["severity"]}))
-PY
-  run_json_helper "$helper" OG_DIR="$dir" OG_TITLE="$title" OG_SEVERITY="$severity" \
-    OG_MODULE="$module" OG_URL="$url" OG_EVIDENCE="$evidence" OG_CONFIDENCE="${confidence:-0}" \
-    OG_IMPACT="$impact" OG_REMEDIATION="$remediation" OG_WSTG="$wstg"
+  local args=(finding-add --dir "$dir" --title "$title" --severity "$severity" --status "$status")
+  args+=("${evidence_args[@]}" "${step_args[@]}" "${reference_args[@]}")
+  append_arg_if_set args --module "$module"
+  append_arg_if_set args --asset "$asset"
+  append_arg_if_set args --url "$url"
+  append_arg_if_set args --method "$method"
+  append_arg_if_set args --path "$path"
+  append_arg_if_set args --parameter "$parameter"
+  append_arg_if_set args --role "$role"
+  append_arg_if_set args --object "$object"
+  append_arg_if_set args --confidence "$confidence"
+  append_arg_if_set args --summary "$summary"
+  append_arg_if_set args --impact "$impact"
+  append_arg_if_set args --exploitability "$exploitability"
+  append_arg_if_set args --remediation "$remediation"
+  append_arg_if_set args --cvss "$cvss"
+  append_arg_if_set args --owasp "$owasp"
+  append_arg_if_set args --cwe "$cwe"
+  append_arg_if_set args --wstg "$wstg"
+  append_arg_if_set args --notes "$notes"
+  state_helper "${args[@]}"
 }
 
 cmd_finding_list() {
-  local dir="" engagement=""
+  local dir="" engagement="" status_filter=""
   while (($#)); do
     case "$1" in
       --dir) dir="${2:-}"; shift 2 ;;
       --engagement) engagement="${2:-}"; shift 2 ;;
+      --status) status_filter="${2:-}"; shift 2 ;;
       *) die "unknown finding list argument: $1" ;;
     esac
   done
   dir="$(resolve_engagement_dir "$dir" "$engagement")"
-  [[ -f "$dir/findings.json" ]] || { printf '[]\n'; return 0; }
-  local helper
-  read -r -d '' helper <<'PY' || true
-import json, os
-path = os.environ["OG_DIR"] + "/findings.json"
-with open(path, "r", encoding="utf-8") as f:
-    findings = json.load(f)
-for item in findings:
-    print(f"[{item.get('id','?')}] {item.get('severity','?').upper()} {item.get('title','')}")
-print(f"Total: {len(findings)}")
-PY
-  run_json_helper "$helper" OG_DIR="$dir"
+  local args=(finding-list --dir "$dir")
+  append_arg_if_set args --status "$status_filter"
+  state_helper "${args[@]}"
 }
 
 cmd_todo_add() {
-  local dir="" engagement="" task="" module="" priority="medium"
+  local dir="" engagement="" task="" module="" priority="medium" finding="" notes=""
+  local evidence_args=()
   while (($#)); do
     case "$1" in
       --dir) dir="${2:-}"; shift 2 ;;
@@ -1013,36 +1104,20 @@ cmd_todo_add() {
       --task) task="${2:-}"; shift 2 ;;
       --module) module="${2:-}"; shift 2 ;;
       --priority) priority="${2:-}"; shift 2 ;;
+      --finding) finding="${2:-}"; shift 2 ;;
+      --evidence) evidence_args+=(--evidence "${2:-}"); shift 2 ;;
+      --notes) notes="${2:-}"; shift 2 ;;
       *) die "unknown todo add argument: $1" ;;
     esac
   done
   [[ -n "$task" ]] || die 'todo add requires --task'
   dir="$(resolve_engagement_dir "$dir" "$engagement")"
-  mkdir -p "$dir"
-  [[ -f "$dir/todos.json" ]] || printf '[]\n' > "$dir/todos.json"
-  local helper
-  read -r -d '' helper <<'PY' || true
-import json, os
-from datetime import datetime, timezone
-path = os.environ["OG_DIR"] + "/todos.json"
-with open(path, "r", encoding="utf-8") as f:
-    todos = json.load(f)
-tid = f"T-{len(todos) + 1:03d}"
-todo = {
-    "id": tid,
-    "task": os.environ["OG_TASK"],
-    "module": os.environ.get("OG_MODULE", ""),
-    "priority": os.environ.get("OG_PRIORITY", "medium"),
-    "status": "pending",
-    "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "completed_at": None,
-}
-todos.append(todo)
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(todos, f, indent=2)
-print(json.dumps({"saved": tid, "task": todo["task"]}))
-PY
-  run_json_helper "$helper" OG_DIR="$dir" OG_TASK="$task" OG_MODULE="$module" OG_PRIORITY="$priority"
+  local args=(todo-add --dir "$dir" --task "$task" --priority "$priority")
+  args+=("${evidence_args[@]}")
+  append_arg_if_set args --module "$module"
+  append_arg_if_set args --finding "$finding"
+  append_arg_if_set args --notes "$notes"
+  state_helper "${args[@]}"
 }
 
 cmd_todo_list() {
@@ -1056,23 +1131,9 @@ cmd_todo_list() {
     esac
   done
   dir="$(resolve_engagement_dir "$dir" "$engagement")"
-  [[ -f "$dir/todos.json" ]] || { printf '[]\n'; return 0; }
-  local helper
-  read -r -d '' helper <<'PY' || true
-import json, os
-path = os.environ["OG_DIR"] + "/todos.json"
-sf = os.environ.get("OG_STATUS", "")
-with open(path, "r", encoding="utf-8") as f:
-    todos = json.load(f)
-shown = 0
-for item in todos:
-    if sf and item.get("status") != sf:
-        continue
-    shown += 1
-    print(f"[{item.get('id','?')}] {item.get('status','?')} {item.get('priority','medium')} {item.get('task','')}")
-print(f"Total: {shown}/{len(todos)}")
-PY
-  run_json_helper "$helper" OG_DIR="$dir" OG_STATUS="$status_filter"
+  local args=(todo-list --dir "$dir")
+  append_arg_if_set args --status "$status_filter"
+  state_helper "${args[@]}"
 }
 
 cmd_todo_update() {
@@ -1089,31 +1150,9 @@ cmd_todo_update() {
   done
   [[ -n "$id" && -n "$status" ]] || die 'todo update requires --id and --status'
   dir="$(resolve_engagement_dir "$dir" "$engagement")"
-  [[ -f "$dir/todos.json" ]] || die "todos.json not found in $dir"
-  local helper
-  read -r -d '' helper <<'PY' || true
-import json, os
-from datetime import datetime, timezone
-path = os.environ["OG_DIR"] + "/todos.json"
-with open(path, "r", encoding="utf-8") as f:
-    todos = json.load(f)
-found = False
-for item in todos:
-    if item.get("id") == os.environ["OG_ID"]:
-        item["status"] = os.environ["OG_NEW_STATUS"]
-        if os.environ.get("OG_NOTES"):
-            item["notes"] = os.environ["OG_NOTES"]
-        if item["status"] in ("done", "skip", "cancelled"):
-            item["completed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        found = True
-        break
-if not found:
-    raise SystemExit(f"todo not found: {os.environ['OG_ID']}")
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(todos, f, indent=2)
-print(json.dumps({"updated": os.environ["OG_ID"], "status": os.environ["OG_NEW_STATUS"]}))
-PY
-  run_json_helper "$helper" OG_DIR="$dir" OG_ID="$id" OG_NEW_STATUS="$status" OG_NOTES="$notes"
+  local args=(todo-update --dir "$dir" --id "$id" --status "$status")
+  append_arg_if_set args --notes "$notes"
+  state_helper "${args[@]}"
 }
 
 cmd_report_generate() {
@@ -1126,56 +1165,20 @@ cmd_report_generate() {
     esac
   done
   dir="$(resolve_engagement_dir "$dir" "$engagement")"
-  mkdir -p "$dir/reports"
-  local helper
-  read -r -d '' helper <<'PY' || true
-import json, os
-from datetime import datetime, timezone
-d = os.environ["OG_DIR"]
-eng_path = d + "/engagement.json"
-findings_path = d + "/findings.json"
-todos_path = d + "/todos.json"
-eng = json.load(open(eng_path, encoding="utf-8")) if os.path.exists(eng_path) else {}
-findings = json.load(open(findings_path, encoding="utf-8")) if os.path.exists(findings_path) else []
-todos = json.load(open(todos_path, encoding="utf-8")) if os.path.exists(todos_path) else []
-sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-findings.sort(key=lambda x: sev_order.get(x.get("severity", "info"), 5))
-report_path = f"{d}/reports/report-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.md"
-lines = ["# OpenGhost Penetration Test Report", ""]
-lines.append(f"Target: {eng.get('target_url', 'N/A')}")
-lines.append(f"Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
-lines.append("")
-lines.append("## Executive Summary")
-lines.append(f"Total findings: {len(findings)}")
-for sev in ["critical", "high", "medium", "low", "info"]:
-    count = sum(1 for f in findings if f.get("severity") == sev)
-    if count:
-        lines.append(f"- {sev.upper()}: {count}")
-lines.append("")
-lines.append("## Findings")
-if not findings:
-    lines.append("No confirmed findings recorded.")
-for f in findings:
-    lines.append(f"### {f.get('id','?')}: {f.get('title','')}")
-    lines.append("")
-    lines.append(f"Severity: {f.get('severity','N/A').upper()}")
-    lines.append(f"Module: {f.get('module','N/A')}")
-    lines.append(f"URL: {f.get('url','N/A')}")
-    lines.append(f"Confidence: {f.get('confidence',0)}%")
-    lines.append("")
-    lines.append(f"Impact: {f.get('impact','N/A')}")
-    lines.append(f"Remediation: {f.get('remediation','N/A')}")
-    lines.append("")
-pending = [t for t in todos if t.get("status") == "pending"]
-if pending:
-    lines.append("## Outstanding Testing Items")
-    for t in pending:
-        lines.append(f"- [{t.get('id','?')}] {t.get('task','')} ({t.get('module','')})")
-with open(report_path, "w", encoding="utf-8") as f:
-    f.write("\n".join(lines))
-print(f"report generated: {report_path}")
-PY
-  run_json_helper "$helper" OG_DIR="$dir"
+  state_helper report-generate --dir "$dir"
+}
+
+cmd_report_list() {
+  local dir="" engagement=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      *) die "unknown report list argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  state_helper report-list --dir "$dir"
 }
 
 cmd_engagement() {
@@ -1213,10 +1216,11 @@ cmd_todo() {
 
 cmd_report() {
   local subcommand="${1:-}"
-  [[ -n "$subcommand" ]] || die 'report requires: generate'
+  [[ -n "$subcommand" ]] || die 'report requires: generate or list'
   shift || true
   case "$subcommand" in
     generate) cmd_report_generate "$@" ;;
+    list) cmd_report_list "$@" ;;
     *) die "unknown report subcommand: $subcommand" ;;
   esac
 }
@@ -1234,6 +1238,8 @@ main() {
     zap) cmd_zap "$@" ;;
     browser) cmd_browser "$@" ;;
     engagement) cmd_engagement "$@" ;;
+    evidence) cmd_evidence "$@" ;;
+    artifact) cmd_artifact "$@" ;;
     finding) cmd_finding "$@" ;;
     todo) cmd_todo "$@" ;;
     report) cmd_report "$@" ;;
@@ -1246,12 +1252,17 @@ main() {
     exec-tool) cmd_run "$@" ;;
     exec-bash) cmd_bash "$@" ;;
     exec-python) cmd_python code "$@" ;;
+    save-evidence) cmd_evidence_add "$@" ;;
+    get-evidence) cmd_evidence_list "$@" ;;
+    save-artifact) cmd_artifact_add "$@" ;;
+    get-artifacts) cmd_artifact_list "$@" ;;
     save-finding) cmd_finding_add "$@" ;;
     get-findings) cmd_finding_list "$@" ;;
     save-todo) cmd_todo_add "$@" ;;
     get-todos) cmd_todo_list "$@" ;;
     update-todo) cmd_todo_update "$@" ;;
     generate-report) cmd_report_generate "$@" ;;
+    get-reports) cmd_report_list "$@" ;;
 
     -h|--help|help) usage ;;
     *) usage; die "unknown command: $command" ;;

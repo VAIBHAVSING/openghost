@@ -17,6 +17,10 @@ This repo contains one standalone Agent Skill: `skills/openghost-skill`. The ski
 
 ```bash
 ./skills/openghost sandbox start
+./skills/openghost engagement init --url https://example.com --name example
+export OPENGHOST_SCOPE=.openghost/engagements/example/scope.yaml
 ./skills/openghost run nmap scanme.nmap.org
-./skills/openghost python code 'print("hello from sandbox")'
+./skills/openghost evidence add --path response.txt --kind response --title "Confirmed response"
+./skills/openghost finding add --title "IDOR allows invoice access" --severity high --module access-control --url /api/invoices/1005 --confidence 95 --evidence E-001 --step "Authenticate as user A." --step "Request user B invoice." --impact "User A can read user B invoices." --remediation "Enforce object-level authorization."
+./skills/openghost report generate
 ```

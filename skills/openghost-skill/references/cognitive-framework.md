@@ -54,7 +54,7 @@ GET /api/invoices/{id} returns invoice 1004 for user A. User B has invoice 1005.
 | 30-49% | Weak lead | One focused test, then pivot if weak |
 | 50-69% | Likely | Validate manually |
 | 70-89% | High confidence | Produce safe PoC |
-| 90-100% | Confirmed | Save finding with evidence |
+| 90-100% | Confirmed | Register evidence and save finding with reproduction steps |
 
 ## Confidence Updates
 

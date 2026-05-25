@@ -1,6 +1,7 @@
 # Finding: <title>
 
 **Severity:** <critical|high|medium|low|info>
+**Status:** <confirmed|likely|draft|fixed|accepted-risk|false-positive>
 **Confidence:** <90-100 for confirmed findings>
 **CVSS:** <vector and score>
 **Affected Asset:** <url, host, endpoint, parameter, object, or role>
@@ -21,11 +22,9 @@
 
 ## Evidence
 
-- Request: `<path to request evidence>`
-- Response: `<path to response evidence>`
-- Screenshot: `<path if applicable>`
-- Tool output: `<path if applicable>`
-- Notes: `<path if applicable>`
+| ID | Kind | Title | Path |
+|---|---|---|---|
+| E-001 | response | <title> | `evidence/F-001/response/E-001-...txt` |
 
 ## Reproduction
 

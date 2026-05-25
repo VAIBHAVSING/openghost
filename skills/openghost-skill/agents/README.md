@@ -26,7 +26,7 @@ Point the agent to `SKILL.md` — it contains everything needed to self-guide:
 - Operating rules and safety constraints
 - Tool execution via the `openghost` launcher on `PATH`
 - Module order and selection criteria
-- Finding/todo management commands
+- Structured evidence, artifact, finding, todo, and report commands
 - Links to deep reference docs per module
 
 ## Key Principle

@@ -50,7 +50,7 @@ export OPENGHOST_SCOPE=.openghost/engagements/<name>/scope.yaml
 
 If `openghost` is already available, do not modify `PATH`. The `skills/openghost` file is the CLI shim, so adding `skills` to `PATH` lets the agent call `openghost run ...` directly. If this skill is installed without the repository-level shim, adding `skills/openghost-skill` to `PATH` exposes the fallback `openghost` wrapper inside the skill directory.
 
-OpenGhost stores engagement state under `.openghost/engagements/<name>/` and records the latest engagement as active in `.openghost/current`. Edit `.openghost/engagements/<name>/scope.yaml` before testing. Include all authorized hosts, ports, excluded paths, excluded hosts, credentials, rate limits, and notes about test accounts.
+OpenGhost stores v2 engagement state under `.openghost/engagements/<name>/` and records the latest engagement as active in `.openghost/current`. Structured JSON registries live in `state/`; direct proof files live under `evidence/`; supporting inventories, auth files, scripts, browser output, and packages live under `artifacts/`. Edit `.openghost/engagements/<name>/scope.yaml` before testing. Include all authorized hosts, ports, excluded paths, excluded hosts, credentials, rate limits, and notes about test accounts.
 
 ## Workflow
 
@@ -209,29 +209,41 @@ Read `references/modules/business-logic.md`.
 
 Read `references/reporting.md`.
 
-1. Save confirmed findings immediately:
+1. Register evidence, then save confirmed findings immediately:
    ```bash
+   openghost evidence add \
+     --path /tmp/sqli-users-response.txt \
+     --kind response \
+     --title "SQL injection proof response" \
+     --module injection \
+     --url "/api/users?id=1"
+
    openghost finding add \
      --title "SQL Injection in /api/users id parameter" \
      --severity high \
      --module injection \
      --url "/api/users?id=1" \
-     --evidence "evidence/http/sqli-users.txt" \
+     --evidence E-001 \
      --confidence 95 \
+     --step "Authenticate with the approved test account." \
+     --step "Send the true/false SQL injection probe to /api/users?id=1." \
+     --step "Compare the response difference proving SQL execution." \
      --impact "Authenticated user can extract database rows" \
      --remediation "Use parameterized queries and remove dynamic SQL concatenation" \
      --wstg "WSTG-INPV-05"
    ```
-2. List findings and todos:
+2. Use `--status draft` or `--status likely` for leads that are not report-ready. Confirmed findings require registered evidence, reproduction steps, impact, and remediation.
+3. List evidence, findings, and todos:
    ```bash
+   openghost evidence list
    openghost finding list
    openghost todo list
    ```
-3. Generate the report:
+4. Generate Markdown and JSON reports:
    ```bash
    openghost report generate
    ```
-4. Stop runtime when finished:
+5. Stop runtime when finished:
    ```bash
    openghost sandbox stop
    ```
