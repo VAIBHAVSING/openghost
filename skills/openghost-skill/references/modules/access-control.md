@@ -45,6 +45,12 @@ ID formats to test:
 
 BOLA is authorization failure at the object level. Every object access must enforce ownership or permission.
 
+Template helper:
+
+```bash
+openghost script run bola-check -- --base-url https://<target> --token <USER_A_TOKEN> --endpoints '/api/orders/{id}' --ids <USER_B_OBJECT_ID>
+```
+
 ### Test Pattern
 
 1. Login as user A and capture a request to user A's resource.
@@ -118,6 +124,13 @@ High-value privileged actions:
 ## BOPLA and Mass Assignment
 
 BOPLA is property-level authorization failure. Mass assignment is accepting unexpected writable fields.
+
+Template helper:
+
+```bash
+openghost script copy mass-assignment-check
+openghost python file .openghost/engagements/<name>/scripts/mass_assignment_check.py -- --base-url https://<target> --token <TOKEN> --endpoint /api/users/me --confirm-write
+```
 
 ### Test Pattern
 
