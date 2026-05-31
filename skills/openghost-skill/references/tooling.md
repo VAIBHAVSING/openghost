@@ -22,7 +22,7 @@ openghost sandbox update
 openghost sandbox shell
 ```
 
-The launcher pulls `ghcr.io/vaibhavsing/openghost-sandbox:latest` by default when the image is missing. Set `OPENGHOST_IMAGE` to override the image. Normal skill users should not build a Dockerfile locally; maintainers build and publish the sandbox from the repo's developer-only Docker context.
+The launcher pulls `ghcr.io/vaibhavsing/openghost-sandbox:latest` by default when the image is missing. Set `OPENGHOST_IMAGE` to override the image. Normal skill users should not build a Dockerfile locally; maintainers build and publish the sandbox from the repo's Docker context.
 
 ## Execution Commands
 
@@ -105,8 +105,8 @@ Developer-only local image builds are explicit opt-in:
 ```bash
 OPENGHOST_BUILD=1 \
   OPENGHOST_IMAGE=openghost-sandbox:dev \
-  OPENGHOST_DOCKERFILE=developer/docker/Dockerfile \
-  OPENGHOST_BUILD_CONTEXT=developer/docker \
+  OPENGHOST_DOCKERFILE=docker/Dockerfile \
+  OPENGHOST_BUILD_CONTEXT=docker \
   openghost sandbox start
 ```
 
