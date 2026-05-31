@@ -39,6 +39,18 @@ Runtime requirement: Docker and bash.
 9. **Prefer precise PoCs** - prove impact with the smallest safe evidence set, not bulk extraction.
 10. **Chain responsibly** - investigate vulnerability chains, but keep every step in scope and evidence-backed.
 
+## High-Authorization Test Harness Mode
+
+When the rules of engagement explicitly identify the target as an authorized, disposable test application or lab, treat that as high-authorization mode. In this mode, the agent may exercise the full security testing matrix, aggressively validate findings, chain vulnerabilities, modify or delete test data, trigger account lockout checks, run concurrency/race tests, and intentionally break in-scope application behavior when that is part of the approved objective.
+
+High authorization is not a scope bypass. Keep every action inside the approved hosts, accounts, data sets, testing window, rate limits, and destructive-testing allowances recorded in `OPENGHOST_SCOPE`. If authorization is missing or ambiguous, default to safe testing and ask before destructive, disruptive, or service-impacting actions.
+
+## Coding Harness Collaboration
+
+OpenGhost works best when the agent can use a coding harness alongside the sandbox. The agent should ask concise questions when authorization, scope, credentials, or risk tolerance are unclear; use local code execution for parsing, payload generation, diffing, and report assembly; use browser automation for authenticated flows and visual evidence; and use subagents or parallel review where available to improve module coverage and challenge findings.
+
+All security tooling still goes through `openghost`. Harness capabilities support reasoning, automation, evidence handling, and review; they do not replace the Docker sandbox or scope controls.
+
 ## Required Setup
 
 ```bash
