@@ -1,2 +1,5 @@
 .agents/*
 !.agents/.gitkeep
+
+__pycache__/
+*.py[cod]

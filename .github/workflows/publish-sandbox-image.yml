@@ -9,11 +9,11 @@ on:
       - "v*"
     paths:
       - ".github/workflows/publish-sandbox-image.yml"
-      - "developer/docker/**"
+      - "docker/**"
   pull_request:
     paths:
       - ".github/workflows/publish-sandbox-image.yml"
-      - "developer/docker/**"
+      - "docker/**"
 
 permissions:
   contents: read
@@ -75,13 +75,13 @@ jobs:
             org.opencontainers.image.title=OpenGhost sandbox
             org.opencontainers.image.description=Developer sandbox image for the OpenGhost skill
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.licenses=Apache-2.0
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: developer/docker
-          file: developer/docker/Dockerfile
+          context: docker
+          file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

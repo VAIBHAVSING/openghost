@@ -161,8 +161,7 @@ Run `openghost help` for the complete command list.
 |-- AGENTS.md
 |-- Dockerfile
 |-- README.md
-|-- developer/
-|   `-- docker/
+|-- docker/
 |-- openghost
 |-- runtime/
 `-- skills/
@@ -186,7 +185,7 @@ Important paths:
 - `skills/openghost-skill/scripts/openghost.sh` - canonical launcher and Docker sandbox implementation.
 - `skills/openghost-skill/scripts/pentest/` - bundled reusable script templates.
 - `skills/openghost-skill/assets/` - scope, auth, finding, and report templates.
-- `developer/docker/Dockerfile` - maintainer image source for the sandbox.
+- `docker/Dockerfile` - maintainer image source for the sandbox.
 - `Dockerfile` - published-image delegate for normal users.
 
 ## Agent Skill Structure
@@ -252,7 +251,7 @@ For sandbox/runtime changes:
 
 ### Add or update a sandbox tool
 
-1. Install the tool in `developer/docker/Dockerfile`.
+1. Install the tool in `docker/Dockerfile`.
 2. Add it to `ALLOWED_TOOLS` in `skills/openghost-skill/scripts/openghost.sh` if agents should run it directly.
 3. Add it to `skills/openghost-skill/scripts/verify-toolchain.sh` if it is required.
 4. Document operator usage in `SKILL.md`, `references/tooling.md`, or the relevant module file.
@@ -290,7 +289,7 @@ The project is installable by skill managers that can read GitHub repositories w
 - Avoid duplicating long methodology in both `SKILL.md` and `references/`.
 - Keep scripts, references, and assets organized by purpose.
 
-The sandbox image is built from `developer/docker/Dockerfile` by the GitHub Actions workflow in `.github/workflows/publish-sandbox-image.yml`.
+The sandbox image is built from `docker/Dockerfile` by the GitHub Actions workflow in `.github/workflows/publish-sandbox-image.yml`.
 
 ## License
 
