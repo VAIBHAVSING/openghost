@@ -15,7 +15,9 @@ Every finding must include:
 7. **Impact** - what an attacker can do, in business terms.
 8. **Exploitability conditions** - required role, auth, network position, user interaction, timing.
 9. **Remediation** - specific fixes, not generic advice.
-10. **References** - OWASP WSTG/API Top 10/CWE/CVSS where applicable.
+10. **Priority** - P0-P4 remediation priority.
+11. **Priority rationale** - CVSS plus business context, exploitability, asset criticality, and urgency signals when applicable.
+12. **References** - OWASP WSTG/API Top 10/CWE/CVSS where applicable.
 
 ## Do Not Report As Confirmed
 
@@ -56,6 +58,8 @@ Every finding must include:
 
 Use CVSS 3.1 or 4.0 if required by the engagement. Be consistent.
 
+Use `references/risk-triage.md` when CVSS alone under- or over-states remediation priority. Common adjustments include crown-jewel exposure, tenant escape, payment integrity, public exploit availability, active exploitation, KEV/EPSS context, and strong compensating controls.
+
 Common CVSS 3.1 vectors:
 
 ```text
@@ -94,6 +98,7 @@ Common mappings:
 **Module:** injection/access-control/session-auth/etc.
 **Confidence:** 95%
 **CVSS:** CVSS:3.1/...
+**Priority:** P1 - <short rationale>
 **OWASP/CWE:** OWASP A01, CWE-862
 
 ### Summary
@@ -121,6 +126,9 @@ One-paragraph explanation of the vulnerability.
 
 ### Impact
 Explain what an attacker can read, change, delete, or trigger.
+
+### Priority Rationale
+Explain exploitability, affected business function, asset criticality, and urgency.
 
 ### Remediation
 Specific implementation guidance.
@@ -153,6 +161,7 @@ openghost evidence add \
 openghost finding add \
   --title "IDOR allows access to other users' invoices" \
   --severity high \
+  --priority P1 \
   --module access-control \
   --url "/api/invoices/1005" \
   --evidence E-001 \
@@ -161,11 +170,13 @@ openghost finding add \
   --step "Request /api/invoices/1005, which belongs to user B." \
   --step "Observe that the response returns user B's invoice data." \
   --impact "Any authenticated user can download another user's invoice by changing the invoice ID" \
+  --priority-rationale "P1 because exploitation is a single authenticated request against sensitive billing data" \
   --remediation "Enforce object-level authorization on every invoice read and download query" \
   --wstg "WSTG-ATHZ-04"
 ```
 
-Use `--status draft` or `--status likely` for incomplete leads. Confirmed findings require severity, module, affected asset, confidence of 90 or higher, registered evidence, reproduction steps, impact, and remediation.
+Use `--status draft` or `--status likely` for incomplete leads. Confirmed findings require severity, module, affected asset, confidence of 90 or higher, registered evidence, reproduction steps, impact, remediation, priority, and priority rationale.
+Add priority rationale from `references/risk-triage.md` when findings will drive remediation sequencing.
 
 ## Report Structure
 
@@ -175,10 +186,12 @@ Use `--status draft` or `--status likely` for incomplete leads. Confirmed findin
 ## Executive Summary
 - Target, generated date, confirmed finding count, evidence count, artifact count, open testing items
 - Finding count by severity
+- Top remediation priorities and rationale
 - Highest-impact chains
 
 ## Scope and Limitations
 - Embedded `scope.yaml` excerpt
+- Objectives, crown jewels, test window, emergency stop, and data-handling constraints
 - Outstanding todos and draft/likely findings
 
 ## Methodology
@@ -187,7 +200,7 @@ Use `--status draft` or `--status likely` for incomplete leads. Confirmed findin
 - Auth contexts used
 
 ## Report Quality Gate
-- Confirmed findings have evidence, reproduction steps, impact, and remediation
+- Confirmed findings have evidence, reproduction steps, impact, remediation, priority, and priority rationale
 - Any incomplete confirmed finding is listed before delivery
 
 ## Findings

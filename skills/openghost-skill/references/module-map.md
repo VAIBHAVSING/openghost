@@ -17,9 +17,17 @@ This file defines how the OpenGhost central skill routes a web or server assessm
 | `business-logic` | workflow bypass, payment/quantity abuse, race conditions, rate-limit abuse | `references/modules/business-logic.md` |
 | `evidence-reporting` | evidence quality, severity, CVSS, report generation | `references/reporting.md` |
 
+## Supporting References
+
+| Reference | Use |
+|---|---|
+| `references/threat-modeling.md` | Pre-engagement ROE depth, objectives, crown jewels, threat scenarios, deconfliction, and cleanup planning |
+| `references/risk-triage.md` | Post-validation prioritization with CVSS, business context, exploitability, asset criticality, and urgency signals |
+
 ## Routing Rules
 
 - Always run `surface-map`, `server-integrity`, and `evidence-reporting`.
+- Always read `references/threat-modeling.md` during setup when objectives, business impact, or destructive-test permissions are unclear.
 - Add `session-auth` when login, JWT, OAuth/OIDC, SAML, API keys, cookies, or refresh tokens exist.
 - Add `access-control` when multiple users, roles, tenants, object IDs, exports, downloads, or admin functions exist.
 - Add `injection` when inputs reach parameters, bodies, headers, cookies, XML, templates, file parsers, URL fetchers, or upload flows.
@@ -27,6 +35,7 @@ This file defines how the OpenGhost central skill routes a web or server assessm
 - Add `browser-policy` when CORS, CSP, cookies, iframes, browser-only flows, DOM sinks, SPA behavior, Playwright validation, or ZAP proxy coverage matter.
 - Add `http-edge` when CDN, cache, WAF, reverse proxy, host routing, HTTP/2 downgrade, or header normalization signals appear.
 - Add `business-logic` when money, orders, quotas, credits, coupons, approvals, invites, subscriptions, entitlements, or one-time tokens exist.
+- Use `references/risk-triage.md` before final reporting whenever multiple confirmed findings compete for remediation priority.
 
 ## Priority Rules
 
@@ -46,8 +55,9 @@ This file defines how the OpenGhost central skill routes a web or server assessm
 An assessment is complete when:
 
 - scope is documented
+- objectives, crown jewels, communication channel, emergency stop, data-handling constraints, and cleanup expectations are documented or explicitly marked not provided
 - endpoint inventory exists
 - modules selected by routing rules have been tested or explicitly skipped with reason
-- all confirmed findings have registered evidence IDs, reproduction steps, impact, and remediation
+- all confirmed findings have registered evidence IDs, reproduction steps, impact, remediation, priority, and priority rationale
 - outstanding leads are documented as todos or report limitations
 - final report is generated and manually reviewed

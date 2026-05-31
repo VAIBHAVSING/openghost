@@ -57,7 +57,7 @@ openghost evidence add --path <file> --kind <request|response|screenshot|tool-ou
 openghost evidence list
 openghost artifact add --path <file> --kind <inventory|auth|tools|scripts|browser|packages> --title <title>
 openghost artifact list
-openghost finding add --title <title> --severity <severity> --evidence E-001 --step <step>
+openghost finding add --title <title> --severity <severity> --module <module> --url <url> --confidence <90-100> --priority <P0-P4> --priority-rationale <text> --evidence E-001 --step <step>
 openghost finding list
 openghost todo add --task <task> --module <module> --priority <priority>
 openghost todo list

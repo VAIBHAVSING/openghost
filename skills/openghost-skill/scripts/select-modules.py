@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-BASE_MODULES = ["scope-safety", "auth-setup", "surface-map"]
+BASE_MODULES = ["surface-map", "server-integrity"]
 FINAL_MODULE = "evidence-reporting"
 
 
@@ -40,20 +40,19 @@ def main() -> int:
     has_auth = bool(re.search(r"\b(form|bearer|token|cookie|api[-_ ]?key|oauth|jwt|role|admin|user)\b", haystack))
     multiple_roles = len(re.findall(r"\b(role|admin|manager|user|guest|tester)\b", haystack)) >= 2
     has_api = bool(re.search(r"\b(api|openapi|swagger|graphql|websocket|soap|xml|json)\b", haystack))
-    has_inputs = bool(re.search(r"\b(form|upload|import|webhook|callback|url parameter|query|json|xml)\b", haystack))
+    has_inputs = bool(re.search(r"\b(form|upload|import|webhook|callback|url parameter|query|json|xml|file|search|filter)\b", haystack))
     has_browser_policy = bool(re.search(r"\b(cors|csp|csrf|cookie|iframe|redirect|header|clickjack)\b", haystack))
     has_http_edge = bool(re.search(r"\b(cache|cdn|proxy|waf|host header|request smuggling)\b", haystack))
     has_business = bool(re.search(r"\b(payment|checkout|order|invite|approval|quota|credit|coupon|workflow|race|mass assignment)\b", haystack))
 
     if has_auth:
-        add_once(modules, "authenticated-crawl")
         add_once(modules, "session-auth")
     if has_auth or multiple_roles:
         add_once(modules, "access-control")
     if has_api or traits.intersection({"api", "graphql", "websocket", "soap"}):
         add_once(modules, "api-protocols")
     if has_inputs or traits.intersection({"forms", "uploads", "ssrf", "sqli", "xss"}):
-        add_once(modules, "injection-trust-boundary")
+        add_once(modules, "injection")
     if has_browser_policy or has_auth:
         add_once(modules, "browser-policy")
     if has_http_edge:

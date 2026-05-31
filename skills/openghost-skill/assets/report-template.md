@@ -12,17 +12,25 @@
 
 ## Scope
 
-<Allowed hosts, excluded paths, credentials/roles, test accounts, rate limits, and allowed write/destructive actions.>
+<Allowed hosts, excluded paths, credentials/roles, test accounts, rate limits, allowed write/destructive actions, emergency stop, communication channel, and data-handling rules.>
+
+## Objectives and Threat Model
+
+<Objectives, crown jewels, relevant threat scenarios, prioritized attack paths, deconfliction markers, and cleanup expectations.>
 
 ## Methodology
 
 <Summarize modules executed: surface mapping, server integrity, session/auth, access control, injection, API protocols, browser policy, HTTP edge, business logic.>
 
+## Risk Triage Method
+
+<Summarize CVSS version, business-priority inputs, asset criticality, exploitability, active exploitation/KEV/EPSS context where applicable, and remediation SLA mapping.>
+
 ## Findings Summary
 
-| ID | Severity | CVSS | Title | Affected Asset | Status |
-|---|---|---:|---|---|---|
-| WEB-001 | High | 8.1 | <title> | <asset> | Open |
+| ID | Priority | Severity | CVSS | Title | Affected Asset | Status |
+|---|---|---|---:|---|---|---|
+| WEB-001 | P1 | High | 8.1 | <title> | <asset> | Open |
 
 ## Findings by Severity
 
@@ -39,6 +47,10 @@
 ## Limitations and Untested Areas
 
 <Areas skipped, blocked, out of scope, unavailable credentials, rate limit constraints, or production-safety limits.>
+
+## Cleanup
+
+<Created test data, modified records, accounts, webhooks, uploaded files, tokens, and cleanup or handoff status.>
 
 ## Retest Notes
 

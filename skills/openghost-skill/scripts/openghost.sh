@@ -96,7 +96,7 @@ Engagement helpers:
   openghost evidence list [--engagement NAME|--dir DIR]
   openghost artifact add [--engagement NAME|--dir DIR] --path FILE --kind KIND --title TITLE [...]
   openghost artifact list [--engagement NAME|--dir DIR]
-  openghost finding add [--engagement NAME|--dir DIR] --title TITLE --severity SEVERITY --evidence E-001 --step STEP [...]
+  openghost finding add [--engagement NAME|--dir DIR] --title TITLE --severity SEVERITY --module MOD --confidence N [--priority P1 --priority-rationale TEXT] --evidence E-001 --step STEP [...]
   openghost finding list [--engagement NAME|--dir DIR] [--status STATUS]
   openghost todo add [--engagement NAME|--dir DIR] --task TASK [--module MOD] [--priority P] [...]
   openghost todo list [--engagement NAME|--dir DIR] [--status STATUS]
@@ -1243,7 +1243,7 @@ cmd_artifact() {
 }
 
 cmd_finding_add() {
-  local dir="" engagement="" title="" severity="" status="confirmed" module="" asset="" url="" method="" path="" parameter="" role="" object="" confidence="" summary="" impact="" exploitability="" remediation="" cvss="" owasp="" cwe="" wstg="" notes=""
+  local dir="" engagement="" title="" severity="" status="confirmed" module="" asset="" url="" method="" path="" parameter="" role="" object="" confidence="" summary="" impact="" exploitability="" remediation="" priority="" priority_rationale="" cvss="" owasp="" cwe="" wstg="" notes=""
   local evidence_args=() step_args=() reference_args=()
   while (($#)); do
     case "$1" in
@@ -1267,6 +1267,8 @@ cmd_finding_add() {
       --impact) impact="${2:-}"; shift 2 ;;
       --exploitability) exploitability="${2:-}"; shift 2 ;;
       --remediation) remediation="${2:-}"; shift 2 ;;
+      --priority) priority="${2:-}"; shift 2 ;;
+      --priority-rationale) priority_rationale="${2:-}"; shift 2 ;;
       --cvss) cvss="${2:-}"; shift 2 ;;
       --owasp) owasp="${2:-}"; shift 2 ;;
       --cwe) cwe="${2:-}"; shift 2 ;;
@@ -1293,6 +1295,8 @@ cmd_finding_add() {
   append_arg_if_set args --impact "$impact"
   append_arg_if_set args --exploitability "$exploitability"
   append_arg_if_set args --remediation "$remediation"
+  append_arg_if_set args --priority "$priority"
+  append_arg_if_set args --priority-rationale "$priority_rationale"
   append_arg_if_set args --cvss "$cvss"
   append_arg_if_set args --owasp "$owasp"
   append_arg_if_set args --cwe "$cwe"

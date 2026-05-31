@@ -319,6 +319,50 @@ openghost run ffuf -u https://<target>/api/FUZZ -w /usr/share/seclists/Discovery
 
 For stateful API fuzzing, import the OpenAPI spec into a suitable fuzzer only with rate limits and test accounts.
 
+### Stateful Fuzzing Gate
+
+Sequence-aware fuzzers can create, modify, and delete resources. Use them only when all are true:
+
+- target is a disposable environment or explicit production write testing is approved
+- OpenAPI/Swagger spec or equivalent request collection is available
+- test accounts, tenants, and seed data are isolated
+- rate limits and max duration are recorded in `scope.yaml`
+- cleanup owner and cleanup commands are documented
+- findings from 5xx errors are manually triaged before reporting
+
+Suggested progression:
+
+1. Run compile/schema validation through `openghost` in the sandbox.
+2. Run smoke/test mode against a tiny endpoint subset.
+3. Run short fuzz-lean mode with strict time limits.
+4. Review created objects and cleanup.
+5. Only then expand endpoint coverage.
+
+Track output as artifacts first. Promote to findings only after manual reproduction and impact proof.
+
+## API Regression Collections
+
+When OpenAPI, Postman collections, or captured traffic exist, build a repeatable multi-role regression matrix:
+
+```markdown
+| Endpoint | Unauth | User A | User B | Admin | Expected |
+|---|---|---|---|---|---|
+| GET /api/users/{user_b} | 401 | 403 | 200 | 200 | object owner/admin only |
+| PATCH /api/users/me role=admin | 401 | 400/403 | 400/403 | 400/403 | sensitive field rejected |
+```
+
+Regression checks should cover:
+
+- auth required on every protected endpoint
+- user A cannot read or modify user B resources
+- lower roles cannot call admin functions
+- sensitive response properties are absent for low roles
+- mass-assignment fields are rejected
+- refresh/logout/password-reset token lifecycle works
+- rate limits apply across IP/header/account variations
+
+Store collections, environment files, and runner output with `openghost artifact add --kind tools` or `--kind inventory`. Store only manually confirmed request/response pairs as evidence.
+
 ## Reporting Checklist
 
 - API endpoint and method
