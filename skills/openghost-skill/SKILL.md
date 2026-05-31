@@ -2,22 +2,17 @@
 name: openghost-skill
 description: >-
   Centralized agent skill for authorized web application and server integrity
-  penetration testing. Covers scope setup, reconnaissance, attack-surface mapping,
+  penetration testing. Covers scope setup, pre-engagement planning, threat
+  modeling, reconnaissance, attack-surface mapping,
   authentication and session testing, access control, injection, API protocols,
   browser policy, ZAP-backed DAST, Playwright browser validation, HTTP edge cases,
-  business logic, server integrity, evidence management, and reporting. All
+  business logic, server integrity, evidence management, risk triage, and
+  reporting. All
   security tooling must be executed through the
   bundled `openghost` launcher so tests run inside the Docker sandbox with tool
   allowlisting and host isolation. Use for
   OWASP WSTG assessments, OWASP API Top 10 testing, vulnerability validation,
   authenticated web app pentests, and server configuration/integrity reviews.
-license: Apache-2.0
-metadata:
-  author: openghost
-  version: "2.0.0"
-  domain: cybersecurity
-  subdomain: penetration-testing
-  tags: web-pentest owasp-wstg owasp-api-top-10 server-integrity docker-sandbox
 ---
 
 # OpenGhost - Central Web Pentest Skill
@@ -82,12 +77,13 @@ Use copied scripts for target-specific logic, authentication flows, or custom pa
 
 ### Step 1: Scope, Auth Context, and Safety
 
-Read `references/workflow.md`, `references/authenticated-testing.md`, and `references/cognitive-framework.md`.
+Read `references/workflow.md`, `references/authenticated-testing.md`, `references/threat-modeling.md`, and `references/cognitive-framework.md`.
 
 1. Confirm written authorization and rules of engagement.
-2. Confirm target URL, domains, IP ranges, API hosts, CDN/origin rules, mobile/API backends, and third-party exclusions.
-3. Identify available test accounts: unauthenticated, user A, user B, privileged user, admin, tenant A, tenant B.
-4. Add todos for each phase:
+2. Confirm target URL, domains, IP ranges, API hosts, CDN/origin rules, mobile/API backends, third-party exclusions, emergency stop contact, communication channel, and data-handling constraints.
+3. Identify objectives, crown jewels, critical workflows, relevant threat scenarios, and attack paths to validate.
+4. Identify available test accounts: unauthenticated, user A, user B, privileged user, admin, tenant A, tenant B.
+5. Add todos for each phase:
    ```bash
    openghost todo add --task "Complete surface mapping" --module surface-map --priority high
    openghost todo add --task "Test auth and session management" --module session-auth --priority high
@@ -181,7 +177,10 @@ Test all inputs across URL parameters, path parameters, JSON fields, XML bodies,
 9. Prototype pollution: `__proto__`, `constructor.prototype`, server-side pollution gadgets, client-side DOM XSS gadgets.
 10. Host header injection: password reset poisoning, cache poisoning, SSRF, virtual host routing.
 11. Email header injection: CRLF injection in contact, invite, password reset, and mailer fields.
-12. Type juggling: PHP loose comparisons and magic hashes.
+12. Command injection: shell metacharacters, argument injection, blind callbacks, and safe command proof only when authorized.
+13. File upload and parser abuse: MIME confusion, double extensions, SVG/HTML upload, archive traversal, metadata parsing, and downstream processing triggers.
+14. LDAP/XPath injection: auth filters, directory search, XML selectors, and boolean/error probes.
+15. Type juggling: PHP loose comparisons and magic hashes.
 
 ### Step 7: API and Protocol Testing
 
@@ -192,7 +191,8 @@ Read `references/modules/api-protocols.md` and `references/zap-playwright.md`.
 3. WebSocket: origin validation, authentication on handshake and messages, channel authorization, message injection, replay, rate limits.
 4. SOAP/XML: WSDL discovery, SOAPAction spoofing, WS-Security checks, XXE, XML injection.
 5. gRPC: reflection, plaintext services, method discovery, metadata authorization, message tampering.
-6. ZAP API scan: import OpenAPI or GraphQL for DAST coverage; use active mode only when explicitly authorized.
+6. Stateful API fuzzing and regression: use OpenAPI specs to plan sequence-aware fuzzing, schema validation, and multi-role regression checks only when the environment, rate limits, and data cleanup are approved.
+7. ZAP API scan: import OpenAPI or GraphQL for DAST coverage; use active mode only when explicitly authorized.
 
 Useful commands:
 
@@ -236,7 +236,7 @@ Read `references/modules/business-logic.md`.
 
 ### Step 10: Evidence and Reporting
 
-Read `references/reporting.md`.
+Read `references/reporting.md` and `references/risk-triage.md`.
 
 1. Register evidence, then save confirmed findings immediately:
    ```bash
@@ -250,6 +250,7 @@ Read `references/reporting.md`.
    openghost finding add \
      --title "SQL Injection in /api/users id parameter" \
      --severity high \
+     --priority P1 \
      --module injection \
      --url "/api/users?id=1" \
      --evidence E-001 \
@@ -258,21 +259,23 @@ Read `references/reporting.md`.
      --step "Send the true/false SQL injection probe to /api/users?id=1." \
      --step "Compare the response difference proving SQL execution." \
      --impact "Authenticated user can extract database rows" \
+     --priority-rationale "P1 because the endpoint is internet-facing, exploit is reliable, and customer data is exposed" \
      --remediation "Use parameterized queries and remove dynamic SQL concatenation" \
      --wstg "WSTG-INPV-05"
    ```
-2. Use `--status draft` or `--status likely` for leads that are not report-ready. Confirmed findings require registered evidence, reproduction steps, impact, and remediation.
-3. List evidence, findings, and todos:
+2. Use `--status draft` or `--status likely` for leads that are not report-ready. Confirmed findings require registered evidence, reproduction steps, impact, remediation, priority, and priority rationale.
+3. Prioritize confirmed findings with CVSS plus engagement context, asset criticality, exploitability, and remediation urgency. Use `references/risk-triage.md` when raw CVSS does not reflect business risk.
+4. List evidence, findings, and todos:
    ```bash
    openghost evidence list
    openghost finding list
    openghost todo list
    ```
-4. Generate Markdown and JSON reports:
+5. Generate Markdown and JSON reports:
    ```bash
    openghost report generate
    ```
-5. Stop runtime when finished:
+6. Stop runtime when finished:
    ```bash
    openghost sandbox stop
    ```
@@ -321,6 +324,7 @@ Actively look for safe, scoped chains:
 
 - `references/workflow.md` - full engagement workflow
 - `references/authenticated-testing.md` - auth context setup and multi-role testing
+- `references/threat-modeling.md` - objectives, crown jewels, attack paths, ROE, and deconfliction
 - `references/cognitive-framework.md` - KNOW / THINK / TEST / VALIDATE loop
 - `references/modules/surface-map.md` - recon, scanning, crawling, endpoint discovery, OSINT
 - `references/modules/server-integrity.md` - TLS, security headers, server misconfig, information disclosure
@@ -334,6 +338,7 @@ Actively look for safe, scoped chains:
 - `references/zap-playwright.md` - ZAP DAST, Playwright proxy capture, reports, official docs
 - `references/tooling.md` - tool catalog and launcher reference
 - `references/reporting.md` - evidence, severity, CVSS, report format
+- `references/risk-triage.md` - OWASP risk factors, SSVC-style urgency, EPSS/KEV context, and SLA guidance
 - `references/module-map.md` - module routing rules
 
 ## Out of Scope

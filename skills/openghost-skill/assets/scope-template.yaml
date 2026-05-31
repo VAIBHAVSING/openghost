@@ -1,5 +1,13 @@
 engagement_id: example-webapp-pentest
 target_url: https://example.com
+authorization:
+  sponsor: security@example.com
+  authorization_document: contract-or-ticket-id
+  test_window: 2026-01-01T00:00:00Z/2026-01-07T23:59:59Z
+  emergency_stop_contact: security-oncall@example.com
+  emergency_stop_phrase: STOP OPENGHOST TESTING
+  communication_channel: "#security-testing"
+  check_in_cadence: daily
 allowed_hosts:
   - example.com
   - "*.example.com"
@@ -11,8 +19,30 @@ exclusions:
 rate_limits:
   requests_per_second: 5
   max_concurrent_requests: 3
+active_testing:
+  zap_active_scan: false
+  stateful_api_fuzzing: false
+  race_tests: false
+  lockout_tests: false
+  destructive_tests: false
 allowed_write_actions:
   - create_test_record
   - update_own_profile
+data_handling:
+  allowed_data_access: test accounts and seeded records only
+  proof_limit: one redacted sample per finding
+  retention: store evidence under .openghost only
+  cleanup_required: true
+objectives:
+  - Validate authentication and session controls.
+  - Validate tenant and role isolation.
+crown_jewels:
+  - user profiles
+  - invoices
+  - admin actions
+deconfliction:
+  source_ips: []
+  user_agent_marker: openghost-authorized-test
+  test_record_prefix: openghost-test
 oob_callback: https://callback.example.test
 notes: Replace example values before use.

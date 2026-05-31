@@ -17,7 +17,7 @@ Use OpenGhost only on systems you are explicitly authorized to test.
 - Agent Skill package with a `SKILL.md` entrypoint, reference docs, scripts, and assets.
 - Docker sandbox for security tooling, with an allowlist and host isolation.
 - Engagement state under `.openghost/`, including scope, evidence, artifacts, todos, findings, and reports.
-- Coverage for OWASP WSTG, OWASP API Top 10, authenticated testing, access control, injection, browser policy, HTTP edge cases, business logic, and server integrity.
+- Coverage for OWASP WSTG, OWASP API Top 10, pre-engagement planning, threat modeling, authenticated testing, access control, injection, browser policy, HTTP edge cases, business logic, server integrity, and risk triage.
 - Bundled low-impact Python templates for repeatable checks such as API inventory, web baseline, CORS, JWT, GraphQL, WebSocket, HPP, cache behavior, BOLA/BFLA, SQLi/NoSQLi probes, XSS reflection, and vulnerability triage.
 - ZAP, Playwright/browser validation, and common web assessment tools exposed through the `openghost` launcher.
 
@@ -55,7 +55,7 @@ openghost engagement init --url https://target.example --name target-example
 export OPENGHOST_SCOPE=.openghost/engagements/target-example/scope.yaml
 ```
 
-Edit the generated scope file before testing. Add allowed hosts, excluded hosts and paths, credentials, rate limits, testing windows, and any rules of engagement.
+Edit the generated scope file before testing. Add allowed hosts, excluded hosts and paths, credentials, rate limits, testing windows, emergency stop contacts, data-handling rules, cleanup expectations, and any rules of engagement.
 
 Run non-destructive checks through the sandbox:
 
@@ -73,10 +73,14 @@ openghost evidence add --path response.txt --kind response --title "Baseline res
 openghost finding add \
   --title "Example finding title" \
   --severity medium \
+  --priority P3 \
   --module server-integrity \
+  --url "https://target.example/" \
   --evidence E-001 \
+  --confidence 95 \
   --step "Captured the baseline response." \
   --impact "Documented confirmed behavior." \
+  --priority-rationale "P3 because impact is limited and no sensitive data exposure was proven." \
   --remediation "Apply the recommended hardening."
 openghost report generate
 ```
@@ -135,7 +139,7 @@ openghost engagement init --url <url> --name <name>
 openghost todo add --task "Complete surface mapping" --module surface-map --priority high
 openghost evidence add --path <file> --kind <kind> --title <title>
 openghost artifact add --path <file> --kind <kind> --title <title>
-openghost finding add --title <title> --severity <severity> --evidence E-001
+openghost finding add --title <title> --severity <severity> --module <module> --url <url> --confidence <90-100> --priority <P0-P4> --priority-rationale <text> --evidence E-001
 openghost report generate
 ```
 

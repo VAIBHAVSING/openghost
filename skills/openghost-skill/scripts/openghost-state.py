@@ -15,6 +15,7 @@ from typing import Any
 
 SCHEMA_VERSION = 2
 SEVERITIES = {"critical", "high", "medium", "low", "info"}
+PRIORITIES = {"P0", "P1", "P2", "P3", "P4"}
 FINDING_STATUSES = {"confirmed", "likely", "draft", "fixed", "accepted-risk", "false-positive"}
 TODO_STATUSES = {"pending", "in-progress", "done", "skip", "cancelled"}
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
@@ -218,6 +219,14 @@ def command_engagement_init(args: argparse.Namespace) -> int:
     ensure_layout(root)
 
     scope = f"""target_url: "{args.url}"
+authorization:
+  sponsor: "TODO"
+  authorization_document: "TODO"
+  test_window: "TODO"
+  emergency_stop_contact: "TODO"
+  emergency_stop_phrase: "STOP OPENGHOST TESTING"
+  communication_channel: "TODO"
+  check_in_cadence: "TODO"
 allowed_hosts:
   - "{args.host}"
 exclusions:
@@ -226,7 +235,34 @@ exclusions:
   hosts: []
 rate_limits:
   requests_per_second: 5
-notes: "Edit this file before testing. Add every authorized host and exclusion."
+  max_concurrent_requests: 3
+active_testing:
+  zap_active_scan: false
+  stateful_api_fuzzing: false
+  race_tests: false
+  lockout_tests: false
+  destructive_tests: false
+allowed_write_actions:
+  - create_test_record
+  - update_own_profile
+data_handling:
+  allowed_data_access: "test accounts and seeded records only"
+  proof_limit: "one redacted sample per finding"
+  retention: "store evidence under .openghost only"
+  cleanup_required: true
+objectives:
+  - "Validate authentication and session controls."
+  - "Validate tenant and role isolation."
+crown_jewels:
+  - "user profiles"
+  - "invoices"
+  - "admin actions"
+deconfliction:
+  source_ips: []
+  user_agent_marker: "openghost-authorized-test"
+  test_record_prefix: "openghost-test"
+oob_callback: ""
+notes: "Edit this file before testing. Add every authorized host, exclusion, communication path, emergency stop contact, data-handling rule, and cleanup expectation."
 """
     (root / "scope.yaml").write_text(scope, encoding="utf-8")
 
@@ -334,6 +370,8 @@ def command_artifact_list(args: argparse.Namespace) -> int:
 def validate_finding(args: argparse.Namespace, evidence_ids: list[str]) -> None:
     if args.severity not in SEVERITIES:
         die("invalid severity: must be critical, high, medium, low, or info")
+    if args.priority and args.priority.upper() not in PRIORITIES:
+        die("invalid priority: must be P0, P1, P2, P3, or P4")
     if args.status not in FINDING_STATUSES:
         die(f"invalid finding status: {args.status}")
     if args.confidence is not None and not (0 <= args.confidence <= 100):
@@ -350,6 +388,10 @@ def validate_finding(args: argparse.Namespace, evidence_ids: list[str]) -> None:
             missing.append("--impact")
         if not args.remediation:
             missing.append("--remediation")
+        if not args.priority:
+            missing.append("--priority")
+        if not args.priority_rationale:
+            missing.append("--priority-rationale")
         if not evidence_ids:
             missing.append("--evidence")
         if not args.step:
@@ -405,6 +447,8 @@ def command_finding_add(args: argparse.Namespace) -> int:
         "impact": args.impact or "",
         "exploitability": args.exploitability or "",
         "remediation": args.remediation or "",
+        "priority": args.priority.upper() if args.priority else "",
+        "priority_rationale": args.priority_rationale or "",
         "cvss": args.cvss or "",
         "owasp": args.owasp or "",
         "cwe": args.cwe or "",
@@ -433,7 +477,7 @@ def command_finding_list(args: argparse.Namespace) -> int:
             continue
         shown += 1
         print(
-            f"[{item.get('id', '?')}] {item.get('severity', '?').upper()} "
+            f"[{item.get('id', '?')}] {item.get('priority') or '-'} {item.get('severity', '?').upper()} "
             f"{item.get('status', '')} {item.get('title', '')}"
         )
     print(f"Total: {shown}/{len(findings)}")
@@ -552,6 +596,10 @@ def report_readiness(findings: list[dict[str, Any]]) -> list[str]:
             missing.append("impact")
         if not finding.get("remediation"):
             missing.append("remediation")
+        if not finding.get("priority"):
+            missing.append("priority")
+        if not finding.get("priority_rationale"):
+            missing.append("priority rationale")
         if missing:
             issues.append(f"{finding.get('id', '?')} missing {', '.join(missing)}")
     return issues
@@ -596,6 +644,12 @@ def render_report_markdown(
     for severity in ["critical", "high", "medium", "low", "info"]:
         lines.append(f"| {severity.title()} | {sum(1 for item in confirmed if item.get('severity') == severity)} |")
 
+    prioritized = [item for item in confirmed if item.get("priority")]
+    if prioritized:
+        lines += ["", "Top remediation priorities:"]
+        for item in sorted(prioritized, key=lambda value: (value.get("priority", "P9"), finding_sort_key(value)))[:5]:
+            lines.append(f"- {item.get('priority')}: {item.get('id', '?')} - {item.get('title', '')}")
+
     lines += [
         "",
         "## Scope and Limitations",
@@ -627,24 +681,25 @@ def render_report_markdown(
         for issue in readiness_issues:
             lines.append(f"- {issue}")
     else:
-        lines.append("All confirmed findings include evidence, reproduction steps, impact, and remediation.")
+        lines.append("All confirmed findings include evidence, reproduction steps, impact, remediation, priority, and priority rationale.")
 
     lines += [
         "",
         "## Findings Summary",
         "",
-        "| ID | Severity | Status | Title | Affected Asset | Evidence |",
-        "|---|---|---|---|---|---:|",
+        "| ID | Priority | Severity | Status | Title | Affected Asset | Evidence |",
+        "|---|---|---|---|---|---|---:|",
     ]
     if confirmed:
         for item in confirmed:
             lines.append(
-                f"| {item.get('id', '')} | {item.get('severity', '').title()} | "
+                f"| {item.get('id', '')} | {item.get('priority') or '-'} | "
+                f"{item.get('severity', '').title()} | "
                 f"{item.get('status', '')} | {item.get('title', '')} | "
                 f"{md_cell(finding_asset_text(item))} | {len(item.get('evidence', []))} |"
             )
     else:
-        lines.append("| - | - | - | No confirmed findings recorded. | - | 0 |")
+        lines.append("| - | - | - | - | No confirmed findings recorded. | - | 0 |")
 
     lines += ["", "## Findings", ""]
     if not confirmed:
@@ -655,6 +710,7 @@ def render_report_markdown(
             f"### {item.get('id', '?')}: {item.get('title', '')}",
             "",
             f"**Severity:** {item.get('severity', '').upper()}",
+            f"**Priority:** {item.get('priority') or 'Not recorded'}",
             f"**Confidence:** {item.get('confidence', 0)}%",
             f"**Module:** {item.get('module', 'N/A')}",
             f"**Affected Asset:** {finding_asset_text(item)}",
@@ -711,6 +767,8 @@ def render_report_markdown(
             item.get("remediation") or "Not recorded.",
             "",
         ]
+        if item.get("priority_rationale"):
+            lines += ["#### Priority Rationale", "", item.get("priority_rationale", ""), ""]
         if item.get("exploitability"):
             lines += ["#### Exploitability Conditions", "", item.get("exploitability", ""), ""]
 
@@ -785,6 +843,10 @@ def command_report_generate(args: argparse.Namespace) -> int:
             "by_severity": {
                 severity: sum(1 for item in confirmed if item.get("severity") == severity)
                 for severity in ["critical", "high", "medium", "low", "info"]
+            },
+            "by_priority": {
+                priority: sum(1 for item in confirmed if item.get("priority") == priority)
+                for priority in ["P0", "P1", "P2", "P3", "P4"]
             },
         },
         "quality_gate": {
@@ -887,6 +949,8 @@ def build_parser() -> argparse.ArgumentParser:
     finding_add.add_argument("--impact")
     finding_add.add_argument("--exploitability")
     finding_add.add_argument("--remediation")
+    finding_add.add_argument("--priority")
+    finding_add.add_argument("--priority-rationale", dest="priority_rationale")
     finding_add.add_argument("--cvss")
     finding_add.add_argument("--owasp")
     finding_add.add_argument("--cwe")

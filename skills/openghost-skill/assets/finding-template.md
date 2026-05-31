@@ -1,6 +1,7 @@
 # Finding: <title>
 
 **Severity:** <critical|high|medium|low|info>
+**Priority:** <P0|P1|P2|P3|P4>
 **Status:** <confirmed|likely|draft|fixed|accepted-risk|false-positive>
 **Confidence:** <90-100 for confirmed findings>
 **CVSS:** <vector and score>
@@ -35,6 +36,10 @@
 ## Impact
 
 <Business and security impact, including what an attacker can read, change, delete, bypass, or trigger.>
+
+## Priority Rationale
+
+<Why this should be fixed at the assigned priority: exploitability, asset criticality, business workflow, exposed data, active exploitation/KEV/EPSS signals, and compensating controls.>
 
 ## Remediation
 

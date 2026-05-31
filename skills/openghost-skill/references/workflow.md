@@ -7,7 +7,7 @@ Phase-by-phase workflow for a complete OpenGhost web application and server inte
 Mandatory before testing.
 
 1. Confirm written authorization and rules of engagement.
-2. Confirm allowed hosts, IPs, ports, APIs, credentials, exclusions, test window, rate limits, and production safety constraints.
+2. Confirm allowed hosts, IPs, ports, APIs, credentials, exclusions, test window, rate limits, production safety constraints, emergency stop contact, communication channel, and data-handling rules.
 3. Start runtime and create engagement:
    ```bash
    openghost sandbox status
@@ -16,7 +16,8 @@ Mandatory before testing.
    export OPENGHOST_SCOPE=.openghost/engagements/<name>/scope.yaml
    ```
 4. Edit `scope.yaml` before testing.
-5. Create initial todos:
+5. Read `references/threat-modeling.md` and record objectives, crown jewels, likely attack paths, deconfliction markers, and cleanup expectations.
+6. Create initial todos:
    ```bash
    openghost todo add --task "Validate scope and auth context" --module surface-map --priority high
    openghost todo add --task "Build endpoint inventory" --module surface-map --priority high
@@ -36,6 +37,8 @@ Reference: `references/modules/surface-map.md`
 8. Fingerprint technology, CDN, WAF, and auth provider.
 
 Output: host/service map, endpoint inventory, technology stack, discovered auth boundaries. Save normalized inventories with `openghost artifact add` and direct proof with `openghost evidence add`.
+
+Use the threat scenarios from Phase 0 to prioritize endpoints tied to crown jewels, tenant boundaries, privileged actions, URL fetchers, file handling, payment/order flows, and export/download paths.
 
 ## Phase 2: Server Integrity
 
@@ -83,6 +86,7 @@ Reference: `references/modules/injection.md`
 3. SSRF, cloud metadata, internal services, protocol smuggling.
 4. SSTI, XXE/XML, NoSQLi.
 5. Deserialization, traversal, host/email header injection, prototype pollution, type juggling.
+6. Command injection, file upload/parser abuse, LDAP injection, and XPath injection when the application exposes shell wrappers, directory search, XML selectors, or upload/import workflows.
 
 Save findings immediately when confidence reaches 90% or above. Register proof files with `openghost evidence add` first, then reference the returned `E-###` IDs from `openghost finding add`.
 
@@ -96,6 +100,7 @@ References: `references/modules/api-protocols.md`, `references/zap-playwright.md
 4. SOAP/XML testing.
 5. gRPC testing if discovered.
 6. Import OpenAPI or GraphQL into ZAP for DAST coverage when specs or endpoints are in scope.
+7. Plan stateful API fuzzing or multi-role regression only when a disposable environment, test data cleanup, rate limits, and explicit write authorization exist.
 
 Output: protocol-specific findings and API inventory gaps.
 
@@ -122,20 +127,21 @@ Reference: `references/modules/business-logic.md`
 
 Output: business-impact findings.
 
-## Phase 9: Reporting and Cleanup
+## Phase 9: Risk Triage, Reporting, and Cleanup
 
-Reference: `references/reporting.md`
+References: `references/reporting.md`, `references/risk-triage.md`
 
 1. Review evidence quality.
 2. Deduplicate findings.
 3. Score severity and CVSS.
-4. Confirm every confirmed finding has registered evidence IDs and numbered reproduction steps.
-5. Record skipped areas and limitations.
-6. Generate Markdown and JSON reports:
+4. Prioritize remediation with business context, asset criticality, exploitability, active exploitation/KEV/EPSS signals when applicable, and compensating controls.
+5. Confirm every confirmed finding has registered evidence IDs and numbered reproduction steps.
+6. Record skipped areas, limitations, cleanup status, and remaining draft leads.
+7. Generate Markdown and JSON reports:
    ```bash
    openghost report generate
    ```
-7. Stop runtime:
+8. Stop runtime:
    ```bash
    openghost sandbox stop
    ```
