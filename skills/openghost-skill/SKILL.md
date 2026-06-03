@@ -61,6 +61,7 @@ OpenGhost stores v2 engagement state under `.openghost/engagements/<name>/` and 
 
 ## Reusable Script Templates
 
+OpenGhost includes Python pentest script templates for authorized web and API testing. The canonical templates stay under the skill package. Run stock templates only through Docker, or copy a template into the active engagement before modifying it:
 
 ```bash
 openghost script list

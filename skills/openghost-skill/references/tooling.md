@@ -70,6 +70,7 @@ OpenGhost stores v2 state under `.openghost/` by default. The latest initialized
 
 ## Pentest Script Templates
 
+Bundled Python templates live in `skills/openghost-skill/scripts/pentest/`. They are constrained for OpenGhost scope validation, Docker execution, and evidence output.
 
 ```bash
 openghost script list
