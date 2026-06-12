@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import shutil
@@ -19,6 +20,8 @@ PRIORITIES = {"P0", "P1", "P2", "P3", "P4"}
 FINDING_STATUSES = {"confirmed", "likely", "draft", "fixed", "accepted-risk", "false-positive"}
 TODO_STATUSES = {"pending", "in-progress", "done", "skip", "cancelled"}
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
+NARRATIVE_MERGE_FIELDS = {"summary", "impact", "exploitability", "remediation", "priority_rationale"}
 
 
 def utc_now() -> str:
@@ -567,6 +570,189 @@ def finding_asset_text(finding: dict[str, Any]) -> str:
     return asset.get("asset") or asset.get("url") or asset.get("path") or "N/A"
 
 
+def normalize_report_value(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def canonical_asset_value(value: Any) -> str:
+    text = normalize_report_value(value)
+    if text not in {"", "/"}:
+        text = text.rstrip("/")
+    return text
+
+
+def finding_duplicate_key(finding: dict[str, Any]) -> tuple[str, str, str, str, str, str, str, str]:
+    asset = finding.get("affected_asset") or {}
+    effective_asset = asset.get("asset") or asset.get("url") or asset.get("path") or ""
+    return (
+        normalize_report_value(finding.get("title")),
+        normalize_report_value(finding.get("module")),
+        normalize_report_value(finding.get("status")),
+        canonical_asset_value(effective_asset),
+        normalize_report_value(asset.get("method")).upper(),
+        canonical_asset_value(asset.get("parameter")),
+        canonical_asset_value(asset.get("role")),
+        canonical_asset_value(asset.get("object")),
+    )
+
+
+def unique_values(values: list[Any]) -> list[Any]:
+    result: list[Any] = []
+    seen: set[str] = set()
+    for value in values:
+        key = json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else str(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
+
+
+def priority_rank(value: Any) -> int:
+    return PRIORITY_ORDER.get(str(value or "").upper(), 99)
+
+
+def highest_severity(left: Any, right: Any) -> str:
+    left_value = str(left or "info").lower()
+    right_value = str(right or "info").lower()
+    return left_value if SEVERITY_ORDER.get(left_value, 99) <= SEVERITY_ORDER.get(right_value, 99) else right_value
+
+
+def highest_priority(left: Any, right: Any) -> str:
+    left_value = str(left or "").upper()
+    right_value = str(right or "").upper()
+    return left_value if priority_rank(left_value) <= priority_rank(right_value) else right_value
+
+
+def step_action(step: Any) -> str:
+    if isinstance(step, dict):
+        return str(step.get("action") or "").strip()
+    return str(step or "").strip()
+
+
+def merge_reproduction_steps(left: list[Any], right: list[Any]) -> list[dict[str, Any]]:
+    actions: list[str] = []
+    seen: set[str] = set()
+    for step in [*(left or []), *(right or [])]:
+        action = step_action(step)
+        key = normalize_report_value(action)
+        if not action or key in seen:
+            continue
+        seen.add(key)
+        actions.append(action)
+    return [{"number": index + 1, "action": action} for index, action in enumerate(actions)]
+
+
+def append_merged_note(finding: dict[str, Any], duplicate_id: str, field: str, value: Any) -> None:
+    text = str(value or "").strip()
+    if not text:
+        return
+    existing = str(finding.get("notes") or "")
+    if normalize_report_value(text) and normalize_report_value(text) in normalize_report_value(existing):
+        return
+    label = field.replace("_", " ")
+    addition = f"Merged duplicate {duplicate_id} {label}: {text}"
+    finding["notes"] = "\n\n".join(part for part in [existing, addition] if part)
+
+
+def append_merged_field_detail(finding: dict[str, Any], duplicate_id: str, field: str, value: Any) -> None:
+    text = str(value or "").strip()
+    if not text:
+        return
+    existing = str(finding.get(field) or "").strip()
+    if normalize_report_value(text) and normalize_report_value(text) in normalize_report_value(existing):
+        return
+    addition = f"Additional detail from merged duplicate {duplicate_id}: {text}"
+    finding[field] = "\n\n".join(part for part in [existing, addition] if part)
+
+
+def merge_duplicate_finding(primary: dict[str, Any], duplicate: dict[str, Any]) -> None:
+    duplicate_id = str(duplicate.get("id") or "unknown")
+    merged_ids = primary.setdefault("merged_duplicate_ids", [])
+    if duplicate_id not in merged_ids:
+        merged_ids.append(duplicate_id)
+
+    primary["severity"] = highest_severity(primary.get("severity"), duplicate.get("severity"))
+    primary["priority"] = highest_priority(primary.get("priority"), duplicate.get("priority"))
+    primary["confidence"] = max(int(primary.get("confidence") or 0), int(duplicate.get("confidence") or 0))
+    primary["evidence"] = unique_values([*(primary.get("evidence") or []), *(duplicate.get("evidence") or [])])
+    primary["references"] = unique_values([*(primary.get("references") or []), *(duplicate.get("references") or [])])
+    primary["reproduction_steps"] = merge_reproduction_steps(
+        primary.get("reproduction_steps") or [],
+        duplicate.get("reproduction_steps") or [],
+    )
+
+    primary_asset = primary.setdefault("affected_asset", {})
+    duplicate_asset = duplicate.get("affected_asset") or {}
+    for field in ["asset", "url", "method", "path", "parameter", "role", "object"]:
+        if not primary_asset.get(field) and duplicate_asset.get(field):
+            primary_asset[field] = duplicate_asset.get(field)
+
+    for field in [
+        "summary",
+        "impact",
+        "exploitability",
+        "remediation",
+        "priority_rationale",
+        "cvss",
+        "owasp",
+        "cwe",
+        "wstg_id",
+    ]:
+        primary_value = primary.get(field)
+        duplicate_value = duplicate.get(field)
+        if not primary_value and duplicate_value:
+            primary[field] = duplicate_value
+        elif duplicate_value and normalize_report_value(primary_value) != normalize_report_value(duplicate_value):
+            if field in NARRATIVE_MERGE_FIELDS:
+                append_merged_field_detail(primary, duplicate_id, field, duplicate_value)
+            else:
+                append_merged_note(primary, duplicate_id, field, duplicate_value)
+
+    append_merged_note(primary, duplicate_id, "notes", duplicate.get("notes"))
+
+
+def deduplicate_findings_for_report(findings: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    by_key: dict[tuple[str, str, str, str, str, str, str, str], dict[str, Any]] = {}
+    groups_by_primary: dict[str, dict[str, Any]] = {}
+
+    for finding in findings:
+        key = finding_duplicate_key(finding)
+        if key not in by_key:
+            report_finding = copy.deepcopy(finding)
+            by_key[key] = report_finding
+            deduped.append(report_finding)
+            continue
+
+        primary = by_key[key]
+        primary_id = str(primary.get("id") or "unknown")
+        duplicate_id = str(finding.get("id") or "unknown")
+        merge_duplicate_finding(primary, finding)
+        group = groups_by_primary.setdefault(
+            primary_id,
+            {
+                "primary_id": primary_id,
+                "merged_ids": [],
+                "title": primary.get("title", ""),
+                "module": primary.get("module", ""),
+                "status": primary.get("status", ""),
+                "affected_asset": finding_asset_text(primary),
+            },
+        )
+        if duplicate_id not in group["merged_ids"]:
+            group["merged_ids"].append(duplicate_id)
+
+    merged_groups = list(groups_by_primary.values())
+    return deduped, {
+        "raw_finding_count": len(findings),
+        "reported_finding_count": len(deduped),
+        "exact_duplicate_group_count": len(merged_groups),
+        "merged_finding_count": sum(len(group["merged_ids"]) for group in merged_groups),
+        "exact_duplicate_groups": merged_groups,
+    }
+
+
 def md_cell(value: Any) -> str:
     text = str(value or "")
     return text.replace("|", "\\|").replace("\n", "<br>")
@@ -614,6 +800,7 @@ def render_report_markdown(
     todos: list[dict[str, Any]],
     evidence: dict[str, dict[str, Any]],
     artifacts: list[dict[str, Any]],
+    deduplication: dict[str, Any] | None = None,
 ) -> str:
     confirmed = [item for item in findings if item.get("status") == "confirmed"]
     non_confirmed = [item for item in findings if item.get("status") != "confirmed"]
@@ -682,6 +869,11 @@ def render_report_markdown(
             lines.append(f"- {issue}")
     else:
         lines.append("All confirmed findings include evidence, reproduction steps, impact, remediation, priority, and priority rationale.")
+    duplicate_groups = (deduplication or {}).get("exact_duplicate_groups", [])
+    if duplicate_groups:
+        lines += ["", "Exact duplicate findings merged for this report:"]
+        for group in duplicate_groups:
+            lines.append(f"- {group.get('primary_id')}: merged {', '.join(group.get('merged_ids', []))}")
 
     lines += [
         "",
@@ -715,6 +907,8 @@ def render_report_markdown(
             f"**Module:** {item.get('module', 'N/A')}",
             f"**Affected Asset:** {finding_asset_text(item)}",
         ]
+        if item.get("merged_duplicate_ids"):
+            lines.append(f"**Merged Duplicate Records:** {', '.join(item.get('merged_duplicate_ids', []))}")
         if item.get("cvss"):
             lines.append(f"**CVSS:** {item.get('cvss')}")
         mappings = ", ".join(part for part in [item.get("owasp"), item.get("cwe"), item.get("wstg_id")] if part)
@@ -813,7 +1007,8 @@ def command_report_generate(args: argparse.Namespace) -> int:
     require_v2_engagement(root)
     ensure_layout(root)
     engagement = read_json(root / "engagement.json", {})
-    findings = load_records(root, "findings.json")
+    raw_findings = load_records(root, "findings.json")
+    findings, deduplication = deduplicate_findings_for_report(raw_findings)
     todos = load_records(root, "todos.json")
     evidence = evidence_lookup(root)
     artifacts = artifact_lookup(root)
@@ -823,7 +1018,7 @@ def command_report_generate(args: argparse.Namespace) -> int:
     stem = f"report-{timestamp_slug()}"
     md_rel = f"reports/{stem}.md"
     json_rel = f"reports/{stem}.json"
-    markdown = render_report_markdown(root, report_id, generated_at, engagement, findings, todos, evidence, artifacts)
+    markdown = render_report_markdown(root, report_id, generated_at, engagement, findings, todos, evidence, artifacts, deduplication)
     (root / md_rel).write_text(markdown, encoding="utf-8")
 
     confirmed = [item for item in findings if item.get("status") == "confirmed"]
@@ -853,6 +1048,7 @@ def command_report_generate(args: argparse.Namespace) -> int:
             "passed": not readiness_issues,
             "issues": readiness_issues,
         },
+        "deduplication": deduplication,
         "findings": findings,
         "evidence": list(evidence.values()),
         "artifacts": artifacts,

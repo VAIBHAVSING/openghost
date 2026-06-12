@@ -162,6 +162,14 @@ def signal_location(signal: dict[str, Any]) -> str:
     return ""
 
 
+def signal_asset(signal: dict[str, Any], target_url: str) -> str:
+    return signal_location(signal) or target_url
+
+
+def signal_type(signal: dict[str, Any]) -> str:
+    return str(signal.get("type") or signal.get("title") or "")
+
+
 def signal_title(tool: str, signal: dict[str, Any]) -> str:
     raw = signal.get("title") or signal.get("type") or "security signal"
     title = str(raw).replace("_", " ").replace("-", " ").strip().title()
@@ -172,8 +180,8 @@ def signal_title(tool: str, signal: dict[str, Any]) -> str:
     return f"{title} ({tool})"
 
 
-def signal_key(tool: str, signal: dict[str, Any]) -> tuple[str, str, str]:
-    return (tool, str(signal.get("type") or signal.get("title") or ""), signal_location(signal))
+def signal_key(tool: str, signal: dict[str, Any], target_url: str) -> tuple[str, str, str]:
+    return (tool, signal_type(signal), signal_asset(signal, target_url))
 
 
 def existing_finding_keys(root: Path) -> set[tuple[str, str, str]]:
@@ -341,10 +349,10 @@ def create_lead(
 ) -> str:
     severity = normalized_severity(signal.get("severity"))
     title = signal_title(tool, signal)
-    location = signal_location(signal)
+    asset = signal_asset(signal, args.target_url)
     notes = {
         "source_tool": tool,
-        "source_type": signal.get("type") or signal.get("title") or "",
+        "source_type": signal_type(signal),
         "raw_signal": signal,
     }
     proc = run_launcher(
@@ -363,7 +371,7 @@ def create_lead(
             "--module",
             module,
             "--asset",
-            location or args.target_url,
+            asset,
             "--confidence",
             "60",
             "--evidence",
@@ -374,7 +382,7 @@ def create_lead(
             "source_tool: "
             + tool
             + "\nsource_type: "
-            + str(signal.get("type") or signal.get("title") or "")
+            + signal_type(signal)
             + "\nraw_signal: "
             + json.dumps(notes["raw_signal"], sort_keys=True, ensure_ascii=True)[:1600],
         ],
@@ -529,7 +537,7 @@ def command_run(args: argparse.Namespace) -> int:
             signal_counts[severity] = signal_counts.get(severity, 0) + 1
             if severity not in LEAD_SEVERITIES or lead_budget <= 0:
                 continue
-            key = signal_key(result["tool"], signal)
+            key = signal_key(result["tool"], signal, target_url)
             if key in existing:
                 continue
             finding_id = create_lead(args, root, result["tool"], result["module"], evidence_id, signal)
@@ -543,6 +551,8 @@ def command_run(args: argparse.Namespace) -> int:
             if todo_id:
                 todos_created.append({"id": todo_id, "finding_id": finding_id})
 
+    successful_results = [item for item in results if item.get("evidence_id")]
+    status = "failed" if not successful_results else "completed_with_errors" if errors else "completed"
     summary_path = run_dir / "assessment.json"
     summary = {
         "schema_version": 1,
@@ -551,7 +561,7 @@ def command_run(args: argparse.Namespace) -> int:
         "engagement_dir": str(root),
         "run_dir": str(run_dir),
         "mode": args.mode,
-        "status": "completed_with_errors" if errors else "completed",
+        "status": status,
         "safety": {
             "confirmed_findings_created": 0,
             "lead_status": "likely",
@@ -578,8 +588,9 @@ def command_run(args: argparse.Namespace) -> int:
         ],
     }
     write_json(summary_path, summary)
-    summary["artifact_id"] = register_assessment_artifact(args, root, summary_path)
-    write_json(summary_path, summary)
+    if successful_results:
+        summary["artifact_id"] = register_assessment_artifact(args, root, summary_path)
+        write_json(summary_path, summary)
 
     if args.json:
         print(json.dumps(summary, indent=2))
@@ -591,7 +602,7 @@ def command_run(args: argparse.Namespace) -> int:
         print(f"validation todos created: {len(todos_created)}")
         if errors:
             print(f"errors: {len(errors)}")
-    return 0
+    return 1 if not successful_results else 0
 
 
 def add_common(parser: argparse.ArgumentParser) -> None:
