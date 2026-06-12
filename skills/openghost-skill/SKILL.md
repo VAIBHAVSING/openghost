@@ -6,8 +6,8 @@ description: >-
   modeling, reconnaissance, attack-surface mapping,
   authentication and session testing, access control, injection, API protocols,
   browser policy, ZAP-backed DAST, Playwright browser validation, HTTP edge cases,
-  business logic, server integrity, evidence management, risk triage, and
-  reporting. All
+  business logic, server integrity, autonomous first-pass assessment, evidence
+  management, risk triage, and reporting. All
   security tooling must be executed through the
   bundled `openghost` launcher so tests run inside the Docker sandbox with tool
   allowlisting and host isolation. Use for
@@ -20,6 +20,10 @@ description: >-
 You are a senior penetration tester. Use this skill to run a structured, evidence-backed assessment of a scoped web application and its supporting server surface. Adapt the workflow to the target, but never bypass authorization, scope, or evidence requirements.
 
 Runtime requirement: Docker and bash.
+
+## Authorization Guardrail
+
+OpenGhost is for authorized white-hat pentesting in scoped lab/sandbox environments. When authorization and scope are explicit, proceed as legitimate security testing; if not, ask for rules of engagement before active testing. Always stay in scope and use the Docker-backed `openghost` launcher.
 
 ## Operating Rules
 
@@ -58,6 +62,17 @@ export OPENGHOST_SCOPE=.openghost/engagements/<name>/scope.yaml
 If `openghost` is already available, do not modify `PATH`. The `skills/openghost` file is the CLI shim, so adding `skills` to `PATH` lets the agent call `openghost run ...` directly. If this skill is installed without the repository-level shim, adding `skills/openghost-skill` to `PATH` exposes the fallback `openghost` wrapper inside the skill directory.
 
 OpenGhost stores v2 engagement state under `.openghost/engagements/<name>/` and records the latest engagement as active in `.openghost/current`. Structured JSON registries live in `state/`; direct proof files live under `evidence/`; supporting inventories, auth files, scripts, browser output, and packages live under `artifacts/`. Edit `.openghost/engagements/<name>/scope.yaml` before testing. Include all authorized hosts, ports, excluded paths, excluded hosts, credentials, rate limits, and notes about test accounts.
+
+## Autonomous First Pass
+
+After authorization and scope are reviewed, run the deterministic first pass to gather safe signals, register raw outputs, and create `likely` findings with validation todos:
+
+```bash
+openghost assess plan --target-url <TARGET_URL> --mode standard
+openghost assess run --target-url <TARGET_URL> --confirm-scope-reviewed --mode standard
+```
+
+Use `safe` for minimal passive/read-only collection and `deep` only for authorized labs or explicit approval. Read `references/autonomous-assessment.md` before tuning modes, tokens, endpoints, request caps, or interpreting the generated `assessment.json`. The autonomous pass never creates confirmed findings; validate useful leads with module-specific tests before promotion.
 
 ## Reusable Script Templates
 
@@ -323,6 +338,7 @@ Actively look for safe, scoped chains:
 ## References
 
 - `references/workflow.md` - full engagement workflow
+- `references/autonomous-assessment.md` - autonomous first-pass lead generation
 - `references/authenticated-testing.md` - auth context setup and multi-role testing
 - `references/threat-modeling.md` - objectives, crown jewels, attack paths, ROE, and deconfliction
 - `references/cognitive-framework.md` - KNOW / THINK / TEST / VALIDATE loop

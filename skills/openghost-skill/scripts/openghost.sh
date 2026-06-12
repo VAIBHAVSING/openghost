@@ -90,6 +90,10 @@ Pentest script templates:
   openghost script copy NAME [...]      Copy a template into the active engagement scripts dir
   openghost script run NAME [-- args]   Run a bundled template inside Docker
 
+Autonomous first pass:
+  openghost assess plan --target-url URL [--mode safe|standard|deep]
+  openghost assess run [--target-url URL] --confirm-scope-reviewed [--mode safe|standard|deep]
+
 Engagement helpers:
   openghost engagement init --url URL [--name NAME] [--out DIR]
   openghost evidence add [--engagement NAME|--dir DIR] --path FILE --kind KIND --title TITLE [...]
@@ -1452,6 +1456,24 @@ cmd_report() {
   esac
 }
 
+cmd_assess() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'assess requires: plan or run'
+  shift || true
+  case "$subcommand" in
+    plan|run)
+      require_host_tool python3
+      python3 "$SCRIPT_DIR/openghost-assess.py" "$subcommand" \
+        --launcher "$SCRIPT_DIR/openghost.sh" \
+        --skill-dir "$SKILL_DIR" \
+        --workspace "$(workspace_abs)" \
+        --openghost-home "$(state_root_abs)" \
+        "$@"
+      ;;
+    *) die "unknown assess subcommand: $subcommand" ;;
+  esac
+}
+
 main() {
   local command="${1:-}"
   [[ -n "$command" ]] || { usage; exit 1; }
@@ -1463,6 +1485,7 @@ main() {
     bash) cmd_bash "$@" ;;
     python) cmd_python "$@" ;;
     script) cmd_script "$@" ;;
+    assess) cmd_assess "$@" ;;
     zap) cmd_zap "$@" ;;
     browser) cmd_browser "$@" ;;
     engagement) cmd_engagement "$@" ;;

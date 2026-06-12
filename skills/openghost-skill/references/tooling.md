@@ -36,6 +36,8 @@ openghost script list
 openghost script show api-inventory
 openghost script copy api-inventory
 openghost script run api-inventory -- --target-url https://<target>
+openghost assess plan --target-url https://<target> --mode standard
+openghost assess run --target-url https://<target> --confirm-scope-reviewed --mode standard
 openghost zap start
 openghost zap baseline --target <URL>
 openghost browser devtools --url <URL> --zap
@@ -67,6 +69,15 @@ openghost report list
 ```
 
 OpenGhost stores v2 state under `.openghost/` by default. The latest initialized engagement is active, so `evidence`, `artifact`, `finding`, `todo`, and `report` commands can omit `--dir`. Use `--engagement <name>` to target another engagement or `--dir <path>` for custom paths. Legacy v1 engagement directories are not migrated; create a fresh v2 engagement with `openghost engagement init`.
+
+## Autonomous First Pass
+
+```bash
+openghost assess plan --target-url https://<target> --mode standard
+openghost assess run --target-url https://<target> --confirm-scope-reviewed --mode standard
+```
+
+`assess run` executes safe bundled templates, registers raw JSON outputs as evidence, creates `likely` findings for medium-or-higher signals, adds validation todos, and writes `runs/assess-<timestamp>/assessment.json`. It never creates confirmed findings. See `references/autonomous-assessment.md` before changing mode, tokens, endpoints, or request caps.
 
 ## Pentest Script Templates
 
