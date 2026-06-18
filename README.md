@@ -4,78 +4,131 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Agent Skill](https://img.shields.io/badge/Agent%20Skill-SKILL.md-111827.svg)](skills/openghost-skill/SKILL.md)
 
-Agent Skill for authorized web application and server integrity penetration testing.
+Agent Skill for authorized web application and supporting server integrity
+penetration testing.
 
-OpenGhost gives AI coding agents a real assessment workflow: scoped targets,
-Docker-backed tool execution, evidence records, reusable checks, and report
-output. The agent reasons and coordinates; OpenGhost keeps security tools inside
-a sandbox and keeps engagement data organized under `.openghost/`.
+OpenGhost helps an AI coding agent run a scoped security assessment. The agent
+plans the work, tests carefully, validates evidence, and writes findings.
+OpenGhost provides the Docker sandbox, scope files, evidence folders, reusable
+checks, and report templates.
 
-Use OpenGhost only on systems you are explicitly authorized to test.
+> [!IMPORTANT]
+> Use OpenGhost only on systems you are explicitly authorized to test.
+>
+> Write the allowed targets, exclusions, accounts, rate limits, test windows,
+> emergency contacts, and rules of engagement into the generated scope file
+> before active testing.
 
-## Quickstart
+## How to Use
 
-1. Install the skill:
+Install the skill with the [skills](https://skills.sh/) CLI:
 
-   ```bash
-   npx skills@latest add VAIBHAVSING/openghost --skill openghost-skill
-   ```
+```bash
+npx skills@latest add https://github.com/VAIBHAVSING/openghost --skill openghost-skill
+```
 
-2. Make sure Docker is running.
+Then ask your agent to use OpenGhost for an authorized assessment:
 
-3. Ask your agent to use OpenGhost for an authorized assessment, or clone the repo
-   for direct CLI use:
+```text
+Use $openghost-skill to assess https://target.example.
+Authorization and scope details are in the engagement notes.
+```
 
-   ```bash
-   git clone https://github.com/VAIBHAVSING/openghost.git
-   cd openghost
-   export PATH="$PWD/skills:$PWD/skills/openghost-skill:$PATH"
-   openghost help
-   ```
+Make sure Docker is running. Security tools are executed through the OpenGhost
+sandbox, not directly on your host machine.
 
-4. Start a scoped engagement:
+<details>
+<summary>Use from a local checkout</summary>
 
-   ```bash
-   openghost sandbox start
-   openghost engagement init --url https://target.example --name target-example
-   export OPENGHOST_SCOPE=.openghost/engagements/target-example/scope.yaml
-   ```
+```bash
+git clone https://github.com/VAIBHAVSING/openghost.git
+cd openghost
+export PATH="$PWD/skills:$PWD/skills/openghost-skill:$PATH"
+openghost help
+```
 
-5. Edit the generated scope file before testing. Add allowed hosts, exclusions,
-   credentials, rate limits, test windows, emergency contacts, and rules of
-   engagement.
+</details>
 
-## Why OpenGhost Exists
+<details>
+<summary>Use with Codex or another Agent Skills client</summary>
 
-### Security tools should not leak onto the host
+Prefer the `skills` CLI install command above. If you install manually, copy the
+skill folder into your client skill directory:
 
-Agents are good at reasoning, but ad hoc host commands make security work messy.
-OpenGhost routes assessment tooling through `openghost`, which runs allowlisted
-commands inside a Docker sandbox.
+```bash
+git clone https://github.com/VAIBHAVSING/openghost.git /tmp/openghost
+mkdir -p ~/.agents/skills
+cp -R /tmp/openghost/skills/openghost-skill ~/.agents/skills/
+```
 
-### Pentests need scope discipline
+Codex and other Agent Skills clients can then discover the `openghost-skill`
+package from the skill directory.
 
-A useful assessment starts with explicit authorization, hosts, accounts, testing
-windows, rate limits, and exclusions. OpenGhost keeps those constraints in
-`OPENGHOST_SCOPE` and makes scope part of the operator workflow.
+</details>
 
-### Scanner output is not a finding
+## Start an Engagement
 
-OpenGhost treats scanners and scripts as leads. Findings should include evidence,
-reproduction steps, impact, confidence, priority, and remediation before they are
-reported as confirmed.
+Create a scoped workspace before testing:
 
-### Agents need reusable structure
+```bash
+openghost sandbox start
+openghost engagement init --url https://target.example --name target-example
+export OPENGHOST_SCOPE=.openghost/engagements/target-example/scope.yaml
+```
 
-The skill package gives agents a short `SKILL.md` entrypoint plus deeper module
-references only when needed. That keeps the main prompt readable while still
-covering OWASP WSTG, OWASP API Top 10, authenticated testing, access control,
-injection, browser policy, HTTP edge cases, business logic, server integrity,
-ZAP-backed DAST, and Playwright/browser validation.
+Edit the generated scope file:
+
+```text
+.openghost/engagements/target-example/scope.yaml
+```
+
+Add the allowed hosts, ports, paths, accounts, roles, tenants, exclusions, rate
+limits, test windows, destructive-test rules, emergency contacts, and notes.
+
+OpenGhost keeps generated engagement data under `.openghost/`. That data is
+operational evidence and should normally stay out of commits.
+
+## What OpenGhost Includes
+
+```text
+OpenGhost
+|-- Agent Skill instructions
+|-- Docker sandbox launcher
+|-- Engagement state and scope helpers
+|-- Evidence, finding, and report helpers
+|-- Reusable assessment scripts
+`-- Reference modules for common web and API test areas
+```
+
+| Area | What it does |
+| --- | --- |
+| `SKILL.md` | Tells the agent how to run an authorized assessment. |
+| `openghost` launcher | Starts the sandbox and runs allowlisted tools inside Docker. |
+| Scope files | Define what is allowed and what is out of bounds. |
+| Evidence helpers | Save proof such as requests, responses, screenshots, and tool output. |
+| Finding helpers | Record confirmed issues with impact, confidence, priority, and remediation. |
+| Report templates | Build a final report from confirmed evidence. |
+
+## Assessment Modules
+
+OpenGhost is one skill package with several focused modules. The agent loads the
+deeper reference only when that topic is needed.
+
+| Module | Use it for |
+| --- | --- |
+| `surface-map` | Hosts, technologies, routes, endpoints, forms, and exposed files. |
+| `server-integrity` | TLS, headers, DNS, services, and server posture. |
+| `session-auth` | Login, cookies, JWT, OAuth/OIDC, SAML, API keys, and sessions. |
+| `access-control` | Roles, tenants, object IDs, admin actions, BOLA, and BFLA. |
+| `injection` | SQL, NoSQL, XSS, XML, command, template, and parser issues. |
+| `api-protocols` | REST, OpenAPI, GraphQL, WebSocket, SOAP/XML, and gRPC. |
+| `browser-policy` | CORS, CSP, clickjacking, browser behavior, and ZAP with Playwright. |
+| `http-edge` | CDN, cache, proxy, WAF, host routing, and HTTP parameter pollution. |
+| `business-logic` | Payments, approvals, invites, quotas, entitlements, races, and abuse cases. |
 
 ## Basic Workflow
 
-Run checks through the sandbox:
+Run safe checks through the sandbox:
 
 ```bash
 openghost sandbox status
@@ -84,10 +137,15 @@ openghost script run web-baseline -- --target-url https://target.example
 openghost script run api-inventory -- --target-url https://target.example
 ```
 
-Record evidence and generate a report:
+Record evidence:
 
 ```bash
 openghost evidence add --path response.txt --kind response --title "Baseline response"
+```
+
+Save a confirmed finding:
+
+```bash
 openghost finding add \
   --title "Example finding title" \
   --severity medium \
@@ -100,24 +158,17 @@ openghost finding add \
   --impact "Documented confirmed behavior." \
   --priority-rationale "P3 because impact is limited." \
   --remediation "Apply the recommended hardening."
+```
+
+Generate the report:
+
+```bash
 openghost report generate
 ```
 
-## Reference
+## Common Commands
 
-### Skill Package
-
-- `skills/openghost-skill/SKILL.md` - agent-facing entrypoint and workflow.
-- `skills/openghost-skill/references/` - deeper workflow, tooling, auth,
-  reporting, risk triage, threat modeling, and module guidance.
-- `skills/openghost-skill/references/modules/` - assessment modules for surface
-  mapping, session auth, access control, injection, APIs, browser policy, HTTP
-  edge cases, business logic, and server integrity.
-- `skills/openghost-skill/scripts/` - launcher, state helper, verification, and
-  reusable automation.
-- `skills/openghost-skill/assets/` - scope, auth, finding, and report templates.
-
-### Sandbox Commands
+### Sandbox
 
 ```bash
 openghost sandbox start
@@ -136,7 +187,7 @@ openghost python code '<script>'
 openghost python file <path> -- [args...]
 ```
 
-### ZAP And Browser Workflows
+### ZAP and Browser Workflows
 
 ```bash
 openghost zap start
@@ -165,6 +216,18 @@ openghost script copy xss-check
 openghost script run cors-check -- --base-url https://target.example --endpoints /api/me /
 ```
 
+## Safety Model
+
+- Confirm authorization, targets, exclusions, rate limits, and test windows
+  before testing.
+- Set `OPENGHOST_SCOPE` and verify scope before each target, module, and tool run.
+- Run security tooling through `openghost`, not directly on the host.
+- Treat scanner output as leads until validated with evidence.
+- Keep generated engagement data under `.openghost/` and normally out of commits.
+- Use destructive, high-volume, or state-changing checks only when the rules of
+  engagement explicitly allow them.
+- Separate confirmed findings from notes, draft leads, and speculation.
+
 ## Repository Map
 
 ```text
@@ -178,7 +241,6 @@ openghost script run cors-check -- --base-url https://target.example --endpoints
 |-- Dockerfile
 |-- docker/
 |-- openghost
-|-- skills.sh.json
 `-- skills/
     |-- openghost
     `-- openghost-skill/
@@ -204,16 +266,16 @@ openghost script run cors-check -- --base-url https://target.example --endpoints
 - [Security](SECURITY.md) - vulnerability reporting policy.
 - [Attribution](ATTRIBUTION.md) - attribution and provenance notes.
 
-## Safety Model
+## Contribute
 
-- Confirm authorization, targets, exclusions, rate limits, and test windows
-  before testing.
-- Set `OPENGHOST_SCOPE` and verify scope before running tests.
-- Run security tooling through `openghost`, not directly on the host.
-- Treat scanner output as leads until validated with evidence.
-- Keep generated engagement data under `.openghost/` and normally out of commits.
-- Use destructive, high-volume, or state-changing checks only when the rules of
-  engagement explicitly allow them.
+Keep OpenGhost direct and practical:
+
+- Keep `README.md` simple: purpose, install, basic use, safety, and repo map.
+- Keep detailed methodology in `skills/openghost-skill/SKILL.md` and
+  `skills/openghost-skill/references/`.
+- Keep security tools inside the Docker sandbox.
+- Keep examples scoped and non-destructive.
+- Keep confirmed findings evidence-backed.
 
 ## License
 
