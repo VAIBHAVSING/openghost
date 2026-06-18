@@ -4,7 +4,7 @@
 **Priority:** <P0|P1|P2|P3|P4>
 **Status:** <confirmed|likely|draft|fixed|accepted-risk|false-positive>
 **Confidence:** <90-100 for confirmed findings>
-**CVSS:** <vector and score>
+**CVSS:** <version, score, vector, nomenclature>
 **Affected Asset:** <url, host, endpoint, parameter, object, or role>
 **Module:** <surface-map|server-integrity|session-auth|access-control|injection|api-protocols|browser-policy|http-edge|business-logic>
 **Role/Context:** <unauthenticated|user_a|user_b|admin|tenant_a|tenant_b>

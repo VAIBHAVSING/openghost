@@ -24,7 +24,7 @@
 
 ## Risk Triage Method
 
-<Summarize CVSS version, business-priority inputs, asset criticality, exploitability, active exploitation/KEV/EPSS context where applicable, and remediation SLA mapping.>
+<State the default CVSS version used for this report. Summarize business-priority inputs, asset criticality, exploitability, active exploitation/KEV/EPSS context where applicable, compensating controls, and remediation SLA mapping. Note that remediation priority may differ from CVSS severity.>
 
 ## Findings Summary
 

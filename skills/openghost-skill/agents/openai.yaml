@@ -1,4 +1,4 @@
 interface:
   display_name: "OpenGhost Skill"
-  short_description: "Run an authorized web app pentest with planning, sandboxed tools, evidence, and risk triage."
+  short_description: "Sandboxed authorized web app pentesting"
   default_prompt: "Use $openghost-skill to run a scoped web application pentest against the provided URL and authentication context, using pre-engagement planning, sandboxed tooling, ZAP-backed DAST, Playwright browser validation, evidence-backed findings, risk triage, and a final report."

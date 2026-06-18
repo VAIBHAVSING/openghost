@@ -2,6 +2,20 @@
 
 Use this reference to convert confirmed evidence into actionable, defensible findings.
 
+## Contents
+
+- Finding Quality Bar
+- Do Not Report As Confirmed
+- Evidence Standards
+- Severity Guidelines
+- CVSS Guidance
+- OWASP and CWE Mapping
+- Finding Template
+- Evidence Handling
+- Save Findings
+- Report Structure
+- Report Generation
+
 ## Finding Quality Bar
 
 Every finding must include:
@@ -15,9 +29,10 @@ Every finding must include:
 7. **Impact** - what an attacker can do, in business terms.
 8. **Exploitability conditions** - required role, auth, network position, user interaction, timing.
 9. **Remediation** - specific fixes, not generic advice.
-10. **Priority** - P0-P4 remediation priority.
-11. **Priority rationale** - CVSS plus business context, exploitability, asset criticality, and urgency signals when applicable.
-12. **References** - OWASP WSTG/API Top 10/CWE/CVSS where applicable.
+10. **CVSS when used** - version, score, vector, and v4.0 nomenclature where applicable.
+11. **Priority** - P0-P4 remediation priority.
+12. **Priority rationale** - CVSS plus business context, exploitability, asset criticality, and urgency signals when applicable.
+13. **References** - OWASP WSTG/API Top 10/CWE/CVSS where applicable.
 
 ## Do Not Report As Confirmed
 
@@ -54,13 +69,43 @@ Every finding must include:
 | Low | 0.1-3.9 | missing cookie flag with limited impact, version disclosure, clickjacking on low-risk page, directory listing without sensitive files |
 | Info | 0.0 | hardening recommendation, documentation exposure without sensitive impact |
 
-## CVSS Notes
+## CVSS Guidance
 
-Use CVSS 3.1 or 4.0 if required by the engagement. Be consistent.
+Use CVSS v4.0 for new reports unless the engagement rules, client template, or
+upstream intake process requires CVSS v3.1. Keep CVSS support docs-only: record
+the value in the existing free-text `--cvss "<score and vector>"` field, and do
+not assume OpenGhost calculates or validates vectors.
 
-Use `references/risk-triage.md` when CVSS alone under- or over-states remediation priority. Common adjustments include crown-jewel exposure, tenant escape, payment integrity, public exploit availability, active exploitation, KEV/EPSS context, and strong compensating controls.
+Whenever CVSS is used, include both the numeric score and the vector string. For
+CVSS v4.0, also label the score with the metric-group nomenclature so readers
+know whether the score is Base-only or includes Threat and Environmental data.
 
-Common CVSS 3.1 vectors:
+CVSS is a standardized severity input, not the whole remediation decision. Use
+`references/risk-triage.md` when CVSS alone under- or over-states priority.
+Common adjustments include crown-jewel exposure, tenant escape, payment
+integrity, public exploit availability, active exploitation, KEV/EPSS context,
+and strong compensating controls.
+
+CVSS v4.0 nomenclature examples:
+
+```text
+Base only: CVSS:4.0/<base metrics> (score X.X, CVSS-B)
+Base + Threat: CVSS:4.0/<base metrics>/<threat metrics> (score X.X, CVSS-BT)
+Base + Environmental: CVSS:4.0/<base metrics>/<environmental metrics> (score X.X, CVSS-BE)
+Base + Threat + Environmental: CVSS:4.0/<base metrics>/<threat metrics>/<environmental metrics> (score X.X, CVSS-BTE)
+```
+
+Common CVSS v4.0 base-vector starters:
+
+```text
+Unauthenticated network flaw with high vulnerable-system confidentiality and integrity impact:
+CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N (score X.X, CVSS-B)
+
+Authenticated sensitive data exposure with no subsequent-system impact:
+CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N (score X.X, CVSS-B)
+```
+
+Common CVSS v3.1 vectors for clients that still require v3.1:
 
 ```text
 Unauthenticated SQLi with high confidentiality/integrity: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N
@@ -70,6 +115,11 @@ SSRF to cloud metadata: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N
 ```
 
 Adjust metrics based on actual preconditions and impact.
+
+Primary references:
+
+- FIRST CVSS v4.0 Specification Document: https://www.first.org/cvss/specification-document
+- FIRST CVSS v4.0 User Guide: https://www.first.org/cvss/v4.0/user-guide
 
 ## OWASP and CWE Mapping
 
@@ -97,7 +147,7 @@ Common mappings:
 **Asset:** https://target.example/path
 **Module:** injection/access-control/session-auth/etc.
 **Confidence:** 95%
-**CVSS:** CVSS:3.1/...
+**CVSS:** CVSS:4.0/... (score X.X, CVSS-B)
 **Priority:** P1 - <short rationale>
 **OWASP/CWE:** OWASP A01, CWE-862
 
@@ -170,6 +220,7 @@ openghost finding add \
   --step "Request /api/invoices/1005, which belongs to user B." \
   --step "Observe that the response returns user B's invoice data." \
   --impact "Any authenticated user can download another user's invoice by changing the invoice ID" \
+  --cvss "CVSS:4.0/... (score X.X, CVSS-B)" \
   --priority-rationale "P1 because exploitation is a single authenticated request against sensitive billing data" \
   --remediation "Enforce object-level authorization on every invoice read and download query" \
   --wstg "WSTG-ATHZ-04"
@@ -201,6 +252,7 @@ Add priority rationale from `references/risk-triage.md` when findings will drive
 
 ## Report Quality Gate
 - Confirmed findings have evidence, reproduction steps, impact, remediation, priority, and priority rationale
+- CVSS values, when present, include version, score, vector, and v4.0 nomenclature where applicable
 - Any incomplete confirmed finding is listed before delivery
 
 ## Findings

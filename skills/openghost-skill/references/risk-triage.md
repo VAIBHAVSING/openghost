@@ -2,26 +2,55 @@
 
 Use this reference after findings are confirmed. The goal is to rank remediation work by verified impact, exploitability, asset value, and urgency instead of scanner severity alone.
 
+## Contents
+
+- Inputs
+- Triage Flow
+- CVSS Versus Priority
+- Priority Matrix
+- OWASP Risk Factors
+- SSVC-Style Decision Points
+- Reporting Language
+
 ## Inputs
 
 For each confirmed finding, collect:
 
 - affected asset and business function
+- CVSS version, score, vector, and v4.0 nomenclature when CVSS is used
 - required attacker access: anonymous, authenticated, role, tenant, network position
 - exploit reliability and user interaction
 - data type and volume exposed or modified
 - integrity, availability, financial, privacy, and compliance impact
+- business criticality: crown jewel, tenant boundary, revenue workflow, regulated data, operational dependency
 - existing compensating controls: WAF, monitoring, approvals, rate limits, MFA, segmentation
 - exploit maturity: no known exploit, private PoC, public PoC, or active exploitation
+- urgency signals: CISA KEV, EPSS, internet exposure, exploitation reports, simple automation, incident context
 - remediation complexity and safe workaround options
 
 ## Triage Flow
 
 1. Confirm the finding meets the evidence quality bar in `references/reporting.md`.
-2. Assign CVSS consistently when the engagement requires it.
-3. Adjust priority with business context: crown-jewel asset, tenant escape, admin reachability, payment impact, or sensitive data exposure.
-4. Add urgency context: public exploit, active exploitation, CISA KEV listing, high EPSS, exposed internet surface, or easy automation.
-5. Record the rationale with `openghost finding add --priority <P0-P4> --priority-rationale "<reason>"`.
+2. Assign CVSS v4.0 by default when CVSS is used, unless the engagement requires v3.1. Record score and vector in `--cvss`; include v4.0 nomenclature such as `CVSS-B` or `CVSS-BTE`.
+3. Assign severity from verified technical impact and the chosen CVSS score.
+4. Derive remediation priority separately from CVSS using business context, exploitability, urgency, and compensating controls.
+5. Escalate priority for crown-jewel exposure, tenant escape, admin reachability, payment integrity impact, regulated data exposure, public exploit, active exploitation, CISA KEV listing, high EPSS, exposed internet surface, or easy automation.
+6. Reduce priority only when evidence supports meaningful controls, narrow reachability, low reliability, or accepted operational constraints.
+7. Record the rationale with `openghost finding add --priority <P0-P4> --priority-rationale "<reason>"`.
+
+## CVSS Versus Priority
+
+CVSS communicates vulnerability severity. Priority communicates what the owner should fix first.
+
+Keep the priority rationale separate from the CVSS score. A finding can have high CVSS severity but lower priority when it is isolated behind strong controls, and a medium CVSS finding can be P1 when it affects a crown-jewel workflow, tenant boundary, regulated data, or active incident path.
+
+Good priority rationale includes:
+
+- affected business workflow or asset criticality
+- who can exploit it and how repeatable it is
+- whether exploitation is active, public, automatable, or KEV/EPSS-backed
+- compensating controls and why they do or do not reduce urgency
+- practical remediation deadline or owner expectation
 
 ## Priority Matrix
 
