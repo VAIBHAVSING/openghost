@@ -2,6 +2,14 @@
 
 Phase-by-phase workflow for a complete OpenGhost web application and server integrity assessment.
 
+## Contents
+
+- Authorization and scope
+- Surface mapping and server integrity
+- Authentication, sessions, and access control
+- Injection, APIs, protocols, browser policy, and HTTP edge
+- Business logic, risk triage, reporting, and cleanup
+
 ## Phase 0: Authorization and Scope
 
 Mandatory before testing.
@@ -25,7 +33,7 @@ Mandatory before testing.
 
 ## Phase 1: Surface Mapping
 
-Reference: `references/modules/surface-map.md`
+Reference: `references/modules/module-surface-map.md`
 
 1. Port scan web/app ports.
 2. Run web server scanning.
@@ -42,7 +50,7 @@ Use the threat scenarios from Phase 0 to prioritize endpoints tied to crown jewe
 
 ## Phase 2: Server Integrity
 
-Reference: `references/modules/server-integrity.md`
+Reference: `references/modules/module-server-integrity.md`
 
 1. TLS/SSL assessment.
 2. Security headers and cookie audit.
@@ -54,7 +62,7 @@ Output: configuration findings and hardening observations.
 
 ## Phase 3: Authentication and Session Analysis
 
-References: `references/modules/session-auth.md`, `references/authenticated-testing.md`
+References: `references/modules/module-session-auth.md`, `references/authenticated-testing.md`
 
 1. Map login, registration, password reset, MFA, OAuth/OIDC, SAML, API key, logout, refresh flows.
 2. Test JWT and token handling.
@@ -66,7 +74,7 @@ Output: auth mechanism assessment, token/session findings.
 
 ## Phase 4: Access Control
 
-Reference: `references/modules/access-control.md`
+Reference: `references/modules/module-access-control.md`
 
 1. Test IDOR/BOLA across all object references.
 2. Test BFLA on admin/privileged functions.
@@ -79,7 +87,7 @@ Output: authorization matrix and access control findings.
 
 ## Phase 5: Injection and Parser Abuse
 
-Reference: `references/modules/injection.md`
+Reference: `references/modules/module-injection.md`
 
 1. SQLi, including second-order SQLi.
 2. XSS: reflected, stored, DOM, blind stored.
@@ -92,7 +100,7 @@ Save findings immediately when confidence reaches 90% or above. Register proof f
 
 ## Phase 6: API and Protocol Testing
 
-References: `references/modules/api-protocols.md`, `references/zap-playwright.md`
+References: `references/modules/module-api-protocols.md`, `references/zap-playwright.md`
 
 1. REST API testing against OWASP API Top 10.
 2. GraphQL testing.
@@ -106,7 +114,7 @@ Output: protocol-specific findings and API inventory gaps.
 
 ## Phase 7: Browser Policy and HTTP Edge
 
-References: `references/modules/browser-policy.md`, `references/modules/http-edge.md`, `references/zap-playwright.md`
+References: `references/modules/module-browser-policy.md`, `references/modules/module-http-edge.md`, `references/zap-playwright.md`
 
 1. CORS, CSP, clickjacking, headers, cookies.
 2. Use Playwright through ZAP for browser-only behavior, SPA routes, authenticated flows, HAR/trace capture, and passive ZAP alerts.
@@ -118,7 +126,7 @@ Output: browser/edge findings with safe PoCs.
 
 ## Phase 8: Business Logic
 
-Reference: `references/modules/business-logic.md`
+Reference: `references/modules/module-business-logic.md`
 
 1. Map workflows and invariants.
 2. Test price, quantity, coupon, refund, plan, entitlement manipulation.
@@ -137,8 +145,11 @@ References: `references/reporting.md`, `references/risk-triage.md`
 4. Prioritize remediation with business context, asset criticality, exploitability, active exploitation/KEV/EPSS signals when applicable, and compensating controls.
 5. Confirm every confirmed finding has registered evidence IDs and numbered reproduction steps.
 6. Record skipped areas, limitations, cleanup status, and remaining draft leads.
-7. Generate Markdown and JSON reports:
+7. Close module coverage, verify evidence, validate the quality gate, and generate Markdown and JSON reports:
    ```bash
+   openghost coverage list
+   openghost evidence verify
+   openghost report validate
    openghost report generate
    ```
 8. Stop runtime:

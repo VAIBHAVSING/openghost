@@ -6,15 +6,15 @@ This file defines how the OpenGhost central skill routes a web or server assessm
 
 | Module | Purpose | Reference |
 |---|---|---|
-| `surface-map` | recon, scanning, crawling, endpoint/API discovery, OSINT within scope | `references/modules/surface-map.md` |
-| `server-integrity` | TLS, headers, cookies, exposed files, management endpoints, DNS hygiene | `references/modules/server-integrity.md` |
-| `session-auth` | login, JWT, OAuth/OIDC, SAML, sessions, CSRF, auth bypass | `references/modules/session-auth.md` |
-| `access-control` | IDOR/BOLA, BFLA, BOPLA, mass assignment, open redirect, tenants | `references/modules/access-control.md` |
-| `injection` | SQLi, XSS, SSRF, SSTI, XXE, NoSQLi, deserialization, traversal, pollution | `references/modules/injection.md` |
-| `api-protocols` | REST, OpenAPI, GraphQL, WebSocket, SOAP/XML, gRPC | `references/modules/api-protocols.md` |
-| `browser-policy` | CORS, CSP, clickjacking, browser headers, cookie policy | `references/modules/browser-policy.md` |
-| `http-edge` | request smuggling, cache poisoning/deception, HPP, WAF/CDN bypass | `references/modules/http-edge.md` |
-| `business-logic` | workflow bypass, payment/quantity abuse, race conditions, rate-limit abuse | `references/modules/business-logic.md` |
+| `surface-map` | recon, scanning, crawling, endpoint/API discovery, OSINT within scope | `references/modules/module-surface-map.md` |
+| `server-integrity` | TLS, headers, cookies, exposed files, management endpoints, DNS hygiene | `references/modules/module-server-integrity.md` |
+| `session-auth` | login, JWT, OAuth/OIDC, SAML, sessions, CSRF, auth bypass | `references/modules/module-session-auth.md` |
+| `access-control` | IDOR/BOLA, BFLA, BOPLA, mass assignment, open redirect, tenants | `references/modules/module-access-control.md` |
+| `injection` | SQLi, XSS, SSRF, SSTI, XXE, NoSQLi, deserialization, traversal, pollution | `references/modules/module-injection.md` |
+| `api-protocols` | REST, OpenAPI, GraphQL, WebSocket, SOAP/XML, gRPC | `references/modules/module-api-protocols.md` |
+| `browser-policy` | CORS, CSP, clickjacking, browser headers, cookie policy | `references/modules/module-browser-policy.md` |
+| `http-edge` | request smuggling, cache poisoning/deception, HPP, WAF/CDN bypass | `references/modules/module-http-edge.md` |
+| `business-logic` | workflow bypass, payment/quantity abuse, race conditions, rate-limit abuse | `references/modules/module-business-logic.md` |
 | `evidence-reporting` | evidence quality, severity, CVSS, report generation | `references/reporting.md` |
 
 ## Supporting References

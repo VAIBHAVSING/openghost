@@ -74,6 +74,10 @@ Primary commands:
 ./openghost todo add ...
 ./openghost todo list
 ./openghost todo update ...
+./openghost coverage set ...
+./openghost context show
+./openghost evidence verify
+./openghost report validate
 ./openghost report generate
 ```
 
@@ -87,8 +91,11 @@ Compatibility aliases exist in `openghost.sh`; preserve them unless intentionall
 - `.openghost/current`
 - `.openghost/engagements/<name>/scope.yaml`
 - `.openghost/engagements/<name>/engagement.json`
-- `.openghost/engagements/<name>/findings.json`
-- `.openghost/engagements/<name>/todos.json`
+- `.openghost/engagements/<name>/state/findings.json`
+- `.openghost/engagements/<name>/state/evidence.json`
+- `.openghost/engagements/<name>/state/artifacts.json`
+- `.openghost/engagements/<name>/state/todos.json`
+- `.openghost/engagements/<name>/state/coverage.json`
 - evidence, notes, reports, artifacts, scripts, browser, and run directories.
 
 `OPENGHOST_SCOPE` should point to the active `scope.yaml` before testing. Scope files are operational data, not source docs.
@@ -143,7 +150,12 @@ bash -n skills/openghost-skill/scripts/verify-toolchain.sh
 For Python edits:
 
 ```bash
-python3 -m py_compile skills/openghost-skill/scripts/select-modules.py
+python3 -m py_compile skills/openghost-skill/scripts/select-modules.py \
+  skills/openghost-skill/scripts/scope_utils.py \
+  skills/openghost-skill/scripts/openghost-assess.py \
+  skills/openghost-skill/scripts/openghost-state.py
+python3 skills/openghost-skill/scripts/check-references.py
+python3 -m unittest discover -s tests -v
 ```
 
 For sandbox/runtime changes:

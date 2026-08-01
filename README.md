@@ -12,6 +12,9 @@ plans the work, tests carefully, validates evidence, and writes findings.
 OpenGhost provides the Docker sandbox, scope files, evidence folders, reusable
 checks, and report templates.
 
+OpenGhost is fully local and open source. It has no hosted service, account,
+API key, telemetry requirement, or managed control plane.
+
 > [!IMPORTANT]
 > Use OpenGhost only on systems you are explicitly authorized to test.
 >
@@ -34,7 +37,7 @@ Use $openghost-skill to assess https://target.example.
 Authorization and scope details are in the engagement notes.
 ```
 
-Make sure Docker is running. Security tools are executed through the OpenGhost
+Make sure Docker is running and Bash 4.3+ plus Python 3 are available. Security tools are executed through the OpenGhost
 sandbox, not directly on your host machine.
 
 <details>
@@ -74,6 +77,8 @@ Create a scoped workspace before testing:
 openghost sandbox start
 openghost engagement init --url https://target.example --name target-example
 export OPENGHOST_SCOPE=.openghost/engagements/target-example/scope.yaml
+# Edit scope.yaml, set authorization.reviewed: true, then validate it.
+openghost scope validate
 ```
 
 Edit the generated scope file:
@@ -140,7 +145,7 @@ openghost script run api-inventory -- --target-url https://target.example
 Record evidence:
 
 ```bash
-openghost evidence add --path response.txt --kind response --title "Baseline response"
+openghost evidence add --path response.txt --kind response --title "Baseline response" --redaction redacted
 ```
 
 Save a confirmed finding:
@@ -163,6 +168,10 @@ openghost finding add \
 Generate the report:
 
 ```bash
+openghost context show
+openghost coverage set --module server-integrity --status tested
+openghost evidence verify
+openghost report validate
 openghost report generate
 ```
 
@@ -201,9 +210,12 @@ openghost browser devtools --url https://target.example --zap
 
 ```bash
 openghost todo add --task "Complete surface mapping" --module surface-map --priority high
-openghost evidence add --path <file> --kind <kind> --title <title>
+openghost evidence add --path <file> --kind <kind> --title <title> --redaction <raw|redacted|sanitized>
 openghost artifact add --path <file> --kind <kind> --title <title>
 openghost finding add --title <title> --severity <severity> --module <module> --url <url> --confidence <90-100> --evidence E-001
+openghost coverage set --module <module> --status <status>
+openghost evidence verify
+openghost report validate
 openghost report generate
 ```
 

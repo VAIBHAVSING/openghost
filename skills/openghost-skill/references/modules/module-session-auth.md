@@ -2,6 +2,18 @@
 
 Covers: authentication flow mapping, JWT, OAuth/OIDC, SAML, API keys, cookies, session lifecycle, password reset, MFA, CSRF, forced browsing, method/path normalization bypasses, credential attacks, and account recovery flaws.
 
+## Contents
+
+- Goals and authentication-flow inventory
+- JWT, OAuth/OIDC, and SAML
+- Session management and CSRF
+- Authentication bypass
+- Credential/rate-limit testing and reporting
+
+## Execution Gate
+
+Use only issued test identities and locally handled target credentials. Recovery, MFA, session revocation, credential attempts, and lockout tests require explicit identity, message-delivery, request-count, and `active_testing.lockout_tests` approval. Do not target real users.
+
 ## Goals
 
 - Determine how identity is established, represented, refreshed, revoked, and authorized.

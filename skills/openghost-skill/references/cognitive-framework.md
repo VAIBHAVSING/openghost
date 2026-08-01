@@ -2,6 +2,14 @@
 
 Use this reasoning loop before meaningful pentest actions. The goal is to keep testing deliberate, scoped, evidence-backed, and adaptive.
 
+## Contents
+
+- KNOW / THINK / TEST / VALIDATE
+- Strong hypotheses and confidence
+- Direct-first and batch gates
+- Constraint typing and evidence thresholds
+- Truthfulness and safe-impact rules
+
 ## KNOW / THINK / TEST / VALIDATE
 
 Before each tool call or manual test:

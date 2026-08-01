@@ -6,6 +6,9 @@ The agent owns planning, scope decisions, module selection, and reporting
 judgment. OpenGhost owns the sandboxed execution layer, deterministic helpers,
 engagement state, and evidence/report files.
 
+OpenGhost has no hosted control plane or managed service dependency. Runtime,
+state, caches, and credentials for authorized target applications stay local.
+
 ## Design Goals
 
 - Keep offensive tooling out of the host environment.
@@ -13,6 +16,7 @@ engagement state, and evidence/report files.
 - Give agents a short skill entrypoint with deeper references loaded only when
   relevant.
 - Keep engagement output separate from source code.
+- Reduce repeated agent context and deterministic work with local, invalidated caches.
 - Preserve one canonical launcher implementation.
 
 ## System Overview
@@ -91,16 +95,19 @@ Maintainers build the sandbox image from:
 docker/Dockerfile
 ```
 
-The sandbox mounts the current workspace at `/workspace`, starts from
-`WORKDIR /workspace`, and exposes tools only through the launcher allowlist.
+The sandbox mounts the current workspace read-only at `/workspace`, overlays
+`.openghost/` read-write for generated state, starts from `WORKDIR /workspace`,
+and exposes tools only through the launcher allowlist. Full workspace writes
+and the host gateway are explicit opt-ins. Memory, CPU, and process limits are
+set by the launcher.
 The launcher also contains a bash blocklist for obvious destructive host or
 system-damage patterns.
 
 ### State Helper
 
 `skills/openghost-skill/scripts/openghost-state.py` owns structured engagement
-state. The shell launcher delegates evidence, artifact, finding, todo, and
-report operations to this helper.
+state. The shell launcher delegates evidence, artifact, finding, todo,
+coverage, compact context, cache status, and report operations to this helper.
 
 Generated state normally lives under:
 
@@ -118,6 +125,7 @@ Generated state normally lives under:
         |-- scripts/
         |-- notes/
         |-- reports/
+        |-- cache/
         `-- runs/
 ```
 
@@ -156,6 +164,7 @@ assessment automation and parsing, not for bypassing scope or safety controls.
 openghost script run api-inventory -- --target-url https://target.example
   -> read manifest
   -> locate bundled script
+  -> reuse a content-addressed script/helper bundle
   -> execute inside Docker
 ```
 
@@ -167,12 +176,30 @@ directory.
 
 ```text
 openghost evidence add ...
+openghost evidence verify
 openghost finding add ...
+openghost coverage set ...
+openghost report validate
 openghost report generate
 ```
 
 Findings should reference evidence IDs and distinguish confirmed behavior from
-likely or possible signals.
+likely or possible signals. Evidence records include SHA-256 integrity metadata.
+Final report generation requires reviewed scope, closed coverage, valid evidence,
+complete confirmed findings, and no unresolved high-priority test work.
+
+### Local Cache Layers
+
+```text
+.openghost/cache/scripts/                         content-addressed script bundles
+.openghost/engagements/<name>/cache/assessment/ deterministic bounded outputs
+.openghost/engagements/<name>/cache/context/    compact agent resume snapshots
+```
+
+Cache keys include relevant source and state hashes. Target-authenticated
+assessment reuse is disabled by default. `openghost context show` is the
+preferred agent resume point so raw state and evidence are loaded only when
+needed for the active hypothesis.
 
 ## Trust Boundaries
 

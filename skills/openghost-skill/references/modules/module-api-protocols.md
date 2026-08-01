@@ -2,6 +2,18 @@
 
 Covers: REST APIs, OWASP API Top 10, OpenAPI/Swagger, API inventory, rate-limit bypass, GraphQL, WebSocket, SOAP/XML, gRPC, API fuzzing, schema validation, and protocol-specific authorization flaws.
 
+## Contents
+
+- Goals and API inventory
+- REST and schema validation
+- GraphQL and WebSocket
+- SOAP/XML and gRPC
+- API fuzzing, regression collections, and reporting
+
+## Execution Gate
+
+Inventory and schema reads do not authorize fuzzing, rate tests, subscriptions, mutations, or protocol state changes. Enable each active class in `scope.yaml`, cap requests, and use test identities and records.
+
 ## Goals
 
 - Discover documented and undocumented APIs.
@@ -36,7 +48,8 @@ Build an API matrix:
 For low-impact initial signals:
 
 ```bash
-openghost script run api-owasp-top10 -- --base-url https://<target> --token <TOKEN> --endpoints '/api/users/{id}' --ids 101,102
+OPENGHOST_TARGET_BEARER_TOKEN='<target-app-token>' \
+  openghost script run api-owasp-top10 -- --base-url https://<target> --endpoints '/api/users/{id}' --ids 101,102
 ```
 
 ### API1: Broken Object Level Authorization

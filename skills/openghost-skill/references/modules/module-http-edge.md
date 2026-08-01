@@ -2,6 +2,18 @@
 
 Covers: HTTP request smuggling, HTTP/2 downgrade desync, web cache poisoning, web cache deception, HTTP parameter pollution, host routing confusion, WAF/CDN bypass, method override, header normalization, and SSL stripping/HSTS weaknesses.
 
+## Contents
+
+- Goals and architecture fingerprinting
+- Request smuggling and HTTP/2 downgrade desync
+- Cache poisoning and cache deception
+- Parameter pollution and routing confusion
+- WAF/CDN behavior, HSTS, and reporting
+
+## Execution Gate
+
+Edge tests can affect shared caches, proxies, tenants, and upstream parsers. Smuggling, desync, cache poisoning, routing, and WAF-bypass probes require explicit approval, unique markers, minimal traffic, and a stop/cleanup plan. Do not run them against shared production edges by default.
+
 Template helpers:
 
 ```bash

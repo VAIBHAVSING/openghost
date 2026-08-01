@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
+
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
+  printf 'error: OpenGhost requires Bash 4.3 or newer (found %s)\n' "$BASH_VERSION" >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -13,6 +19,9 @@ ZAP_PORT="${OPENGHOST_ZAP_PORT:-8080}"
 ZAP_SCAN_PORT="${OPENGHOST_ZAP_SCAN_PORT:-8090}"
 ZAP_API_KEY="${OPENGHOST_ZAP_API_KEY:-openghost}"
 ZAP_MAX_MEMORY="${OPENGHOST_ZAP_MAX_MEMORY:-1024m}"
+SANDBOX_MEMORY="${OPENGHOST_SANDBOX_MEMORY:-4g}"
+SANDBOX_CPUS="${OPENGHOST_SANDBOX_CPUS:-2}"
+SANDBOX_PIDS="${OPENGHOST_SANDBOX_PIDS:-512}"
 WORKSPACE_DIR="${OPENGHOST_WORKSPACE:-${PWD}}"
 OPENGHOST_HOME="${OPENGHOST_HOME:-${PWD}/.openghost}"
 DEV_DOCKER_DIR="${REPO_ROOT}/docker"
@@ -93,11 +102,15 @@ Pentest script templates:
 Autonomous first pass:
   openghost assess plan --target-url URL [--mode safe|standard|deep]
   openghost assess run [--target-url URL] --confirm-scope-reviewed [--mode safe|standard|deep]
+  openghost context show [--engagement NAME|--dir DIR] [--json] [--refresh]
+  openghost cache status [--engagement NAME|--dir DIR] [--json]
 
 Engagement helpers:
   openghost engagement init --url URL [--name NAME] [--out DIR]
+  openghost scope validate [--engagement NAME|--dir DIR] [--target-url URL] [--json]
   openghost evidence add [--engagement NAME|--dir DIR] --path FILE --kind KIND --title TITLE [...]
   openghost evidence list [--engagement NAME|--dir DIR]
+  openghost evidence verify [--engagement NAME|--dir DIR] [--json]
   openghost artifact add [--engagement NAME|--dir DIR] --path FILE --kind KIND --title TITLE [...]
   openghost artifact list [--engagement NAME|--dir DIR]
   openghost finding add [--engagement NAME|--dir DIR] --title TITLE --severity SEVERITY --module MOD --confidence N [--priority P1 --priority-rationale TEXT] --evidence E-001 --step STEP [...]
@@ -105,7 +118,10 @@ Engagement helpers:
   openghost todo add [--engagement NAME|--dir DIR] --task TASK [--module MOD] [--priority P] [...]
   openghost todo list [--engagement NAME|--dir DIR] [--status STATUS]
   openghost todo update [--engagement NAME|--dir DIR] --id ID --status STATUS [--notes TEXT]
-  openghost report generate [--engagement NAME|--dir DIR]
+  openghost coverage set --module MODULE --status STATUS [--reason TEXT]
+  openghost coverage list [--json]
+  openghost report validate [--engagement NAME|--dir DIR] [--json]
+  openghost report generate [--engagement NAME|--dir DIR] [--allow-incomplete]
   openghost report list [--engagement NAME|--dir DIR]
 
 Compatibility aliases:
@@ -124,8 +140,15 @@ Environment:
   OPENGHOST_ZAP_SCAN_PORT               Default: 8090
   OPENGHOST_ZAP_API_KEY                 Default: openghost
   OPENGHOST_ZAP_MAX_MEMORY              Default: 1024m
+  OPENGHOST_SANDBOX_MEMORY              Default: 4g
+  OPENGHOST_SANDBOX_CPUS                Default: 2
+  OPENGHOST_SANDBOX_PIDS                Default: 512
+  OPENGHOST_ALLOW_HOST_GATEWAY=1        Opt in to resolving host.docker.internal
+  OPENGHOST_WORKSPACE_WRITE=1           Opt in to a writable full workspace mount
   OPENGHOST_WORKSPACE                   Default: current working directory
   OPENGHOST_HOME                        Default: $PWD/.openghost
+  OPENGHOST_TARGET_BEARER_TOKEN         Optional target-app token; forwarded only to invoked sandbox processes
+  OPENGHOST_TARGET_COOKIES              Optional target-app Cookie header; forwarded only to invoked sandbox processes
   OPENGHOST_BUILD=1                     Developer-only: build a local Dockerfile
   OPENGHOST_DOCKERFILE                  Developer-only Dockerfile path
   OPENGHOST_BUILD_CONTEXT               Developer-only Docker build context
@@ -299,15 +322,21 @@ append_arg_if_set() {
 
 docker_exec() {
   ensure_running
-  docker exec "$CONTAINER_NAME" "$@"
+  local -a exec_args=(exec)
+  [[ -n "${OPENGHOST_TARGET_BEARER_TOKEN:-}" ]] && exec_args+=(--env OPENGHOST_TARGET_BEARER_TOKEN)
+  [[ -n "${OPENGHOST_TARGET_COOKIES:-}" ]] && exec_args+=(--env OPENGHOST_TARGET_COOKIES)
+  docker "${exec_args[@]}" "$CONTAINER_NAME" "$@"
 }
 
 docker_exec_interactive() {
   ensure_running
+  local -a exec_args=(exec)
+  [[ -n "${OPENGHOST_TARGET_BEARER_TOKEN:-}" ]] && exec_args+=(--env OPENGHOST_TARGET_BEARER_TOKEN)
+  [[ -n "${OPENGHOST_TARGET_COOKIES:-}" ]] && exec_args+=(--env OPENGHOST_TARGET_COOKIES)
   if [[ -t 0 && -t 1 ]]; then
-    docker exec -it "$CONTAINER_NAME" "$@"
+    docker "${exec_args[@]}" -it "$CONTAINER_NAME" "$@"
   else
-    docker exec -i "$CONTAINER_NAME" "$@"
+    docker "${exec_args[@]}" -i "$CONTAINER_NAME" "$@"
   fi
 }
 
@@ -329,17 +358,35 @@ sandbox_start() {
 
   local ws
   ws="$(workspace_abs)"
+  local state_abs state_container
+  state_abs="$(state_root_abs)"
 
-  docker run -d \
-    --name "$CONTAINER_NAME" \
-    --security-opt no-new-privileges:true \
-    --cap-drop ALL \
-    --cap-add NET_RAW \
-    --cap-add NET_BIND_SERVICE \
-    --add-host host.docker.internal:host-gateway \
-    -v "${ws}:/workspace" \
-    -w /workspace \
-    "$IMAGE_NAME" >/dev/null
+  local -a docker_args=(
+    run -d
+    --name "$CONTAINER_NAME"
+    --security-opt no-new-privileges:true
+    --cap-drop ALL
+    --cap-add NET_RAW
+    --cap-add NET_BIND_SERVICE
+    --pids-limit "$SANDBOX_PIDS"
+    --memory "$SANDBOX_MEMORY"
+    --cpus "$SANDBOX_CPUS"
+    -w /workspace
+  )
+  if [[ "${OPENGHOST_WORKSPACE_WRITE:-0}" == "1" ]]; then
+    docker_args+=(-v "${ws}:/workspace:rw")
+  else
+    case "$state_abs" in
+      "$ws"/*) state_container="/workspace/${state_abs#"$ws"/}" ;;
+      *) die 'read-only workspace mode requires OPENGHOST_HOME inside OPENGHOST_WORKSPACE; set OPENGHOST_WORKSPACE_WRITE=1 to opt out' ;;
+    esac
+    docker_args+=(-v "${ws}:/workspace:ro" -v "${state_abs}:${state_container}:rw")
+  fi
+  if [[ "${OPENGHOST_ALLOW_HOST_GATEWAY:-0}" == "1" ]]; then
+    docker_args+=(--add-host host.docker.internal:host-gateway)
+  fi
+  docker_args+=("$IMAGE_NAME")
+  docker "${docker_args[@]}" >/dev/null
 
   printf 'sandbox started: %s\n' "$CONTAINER_NAME"
 }
@@ -352,6 +399,9 @@ ensure_running() {
 sandbox_status() {
   require_docker
   printf 'image: %s\n' "$IMAGE_NAME"
+  printf 'workspace_mode: %s\n' "$([[ "${OPENGHOST_WORKSPACE_WRITE:-0}" == "1" ]] && printf 'read-write' || printf 'read-only-with-openghost-state-write')"
+  printf 'host_gateway: %s\n' "$([[ "${OPENGHOST_ALLOW_HOST_GATEWAY:-0}" == "1" ]] && printf 'enabled' || printf 'disabled')"
+  printf 'limits: memory=%s cpus=%s pids=%s\n' "$SANDBOX_MEMORY" "$SANDBOX_CPUS" "$SANDBOX_PIDS"
   if image_exists; then
     printf 'image_status: present\n'
   else
@@ -619,17 +669,29 @@ cmd_script_run() {
     esac
   done
 
-  local file src cache script_path container_script scope_set=0
+  local file src cache script_path container_script scope_set=0 bundle_hash
   local -a env_args=()
   file="$(script_lookup "$name" file)" || die "unknown script template: $name"
   src="$(script_template_dir)/$file"
   [[ -f "$src" ]] || die "script template file not found: $src"
 
-  cache="$(state_root_abs)/cache/scripts/$name"
-  mkdir -p "$cache"
-  cp "$src" "$cache/$file"
-  cp "$(script_template_dir)/og_pentest.py" "$cache/og_pentest.py"
-  cp "$(script_template_dir)/NOTICE" "$cache/NOTICE.openghost-pentest-scripts"
+  # Content-address the script bundle so frequently used templates are copied
+  # once and reused until either the template or shared helper changes.
+  if command -v sha256sum >/dev/null 2>&1; then
+    bundle_hash="$(sha256sum "$src" "$(script_template_dir)/og_pentest.py" "$(script_template_dir)/NOTICE" | cut -d' ' -f1 | sha256sum | cut -d' ' -f1)"
+  elif command -v shasum >/dev/null 2>&1; then
+    bundle_hash="$(shasum -a 256 "$src" "$(script_template_dir)/og_pentest.py" "$(script_template_dir)/NOTICE" | cut -d' ' -f1 | shasum -a 256 | cut -d' ' -f1)"
+  else
+    die 'sha256sum or shasum is required for the script cache'
+  fi
+  cache="$(state_root_abs)/cache/scripts/$name/$bundle_hash"
+  if [[ ! -f "$cache/.complete" ]]; then
+    mkdir -p "$cache"
+    cp "$src" "$cache/$file"
+    cp "$(script_template_dir)/og_pentest.py" "$cache/og_pentest.py"
+    cp "$(script_template_dir)/NOTICE" "$cache/NOTICE.openghost-pentest-scripts"
+    printf '%s\n' "$bundle_hash" > "$cache/.complete"
+  fi
   script_path="$cache/$file"
   container_script="$(container_path_for_existing "$script_path")"
 
@@ -668,7 +730,6 @@ cmd_script_run() {
     scope_set=1
   fi
   env_args+=("OPENGHOST_SCRIPT_NAME=$name")
-
   docker_exec env "${env_args[@]}" python3 "$container_script" "$@"
 }
 
@@ -1142,8 +1203,42 @@ cmd_engagement_init() {
   set_current_engagement "$out"
 }
 
+cmd_scope_validate() {
+  require_host_tool python3
+  local dir="" engagement="" target_url="" json=0 allow_outside_window=0
+  local -a gate_args=()
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --target-url) target_url="${2:-}"; shift 2 ;;
+      --require-gate) gate_args+=(--require-gate "${2:-}"); shift 2 ;;
+      --allow-outside-window) allow_outside_window=1; shift ;;
+      --json) json=1; shift ;;
+      *) die "unknown scope validate argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(--scope "$dir/scope.yaml")
+  append_arg_if_set args --target-url "$target_url"
+  args+=("${gate_args[@]}")
+  [[ "$allow_outside_window" == "1" ]] && args+=(--allow-outside-window)
+  [[ "$json" == "1" ]] && args+=(--json)
+  python3 "$SCRIPT_DIR/scope_utils.py" "${args[@]}"
+}
+
+cmd_scope() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'scope requires: validate'
+  shift || true
+  case "$subcommand" in
+    validate) cmd_scope_validate "$@" ;;
+    *) die "unknown scope subcommand: $subcommand" ;;
+  esac
+}
+
 cmd_evidence_add() {
-  local dir="" engagement="" path="" kind="" title="" finding="" module="" url="" method="" role="" command="" notes=""
+  local dir="" engagement="" path="" kind="" title="" finding="" module="" url="" method="" role="" command="" notes="" redaction="raw"
   while (($#)); do
     case "$1" in
       --dir) dir="${2:-}"; shift 2 ;;
@@ -1158,6 +1253,7 @@ cmd_evidence_add() {
       --role) role="${2:-}"; shift 2 ;;
       --command) command="${2:-}"; shift 2 ;;
       --notes) notes="${2:-}"; shift 2 ;;
+      --redaction) redaction="${2:-}"; shift 2 ;;
       *) die "unknown evidence add argument: $1" ;;
     esac
   done
@@ -1171,6 +1267,7 @@ cmd_evidence_add() {
   append_arg_if_set args --role "$role"
   append_arg_if_set args --command "$command"
   append_arg_if_set args --notes "$notes"
+  append_arg_if_set args --redaction "$redaction"
   state_helper "${args[@]}"
 }
 
@@ -1187,13 +1284,30 @@ cmd_evidence_list() {
   state_helper evidence-list --dir "$dir"
 }
 
+cmd_evidence_verify() {
+  local dir="" engagement="" json=0
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --json) json=1; shift ;;
+      *) die "unknown evidence verify argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(evidence-verify --dir "$dir")
+  [[ "$json" == "1" ]] && args+=(--json)
+  state_helper "${args[@]}"
+}
+
 cmd_evidence() {
   local subcommand="${1:-}"
-  [[ -n "$subcommand" ]] || die 'evidence requires: add or list'
+  [[ -n "$subcommand" ]] || die 'evidence requires: add, list, or verify'
   shift || true
   case "$subcommand" in
     add) cmd_evidence_add "$@" ;;
     list) cmd_evidence_list "$@" ;;
+    verify) cmd_evidence_verify "$@" ;;
     *) die "unknown evidence subcommand: $subcommand" ;;
   esac
 }
@@ -1247,7 +1361,7 @@ cmd_artifact() {
 }
 
 cmd_finding_add() {
-  local dir="" engagement="" title="" severity="" status="confirmed" module="" asset="" url="" method="" path="" parameter="" role="" object="" confidence="" summary="" impact="" exploitability="" remediation="" priority="" priority_rationale="" cvss="" owasp="" cwe="" wstg="" notes=""
+  local dir="" engagement="" title="" severity="" status="confirmed" module="" asset="" url="" method="" path="" parameter="" role="" object="" confidence="" summary="" impact="" exploitability="" remediation="" priority="" priority_rationale="" cvss="" owasp="" cwe="" wstg="" asvs="" notes=""
   local evidence_args=() step_args=() reference_args=()
   while (($#)); do
     case "$1" in
@@ -1277,6 +1391,7 @@ cmd_finding_add() {
       --owasp) owasp="${2:-}"; shift 2 ;;
       --cwe) cwe="${2:-}"; shift 2 ;;
       --wstg) wstg="${2:-}"; shift 2 ;;
+      --asvs) asvs="${2:-}"; shift 2 ;;
       --reference) reference_args+=(--reference "${2:-}"); shift 2 ;;
       --notes) notes="${2:-}"; shift 2 ;;
       *) die "unknown finding add argument: $1" ;;
@@ -1305,6 +1420,7 @@ cmd_finding_add() {
   append_arg_if_set args --owasp "$owasp"
   append_arg_if_set args --cwe "$cwe"
   append_arg_if_set args --wstg "$wstg"
+  append_arg_if_set args --asvs "$asvs"
   append_arg_if_set args --notes "$notes"
   state_helper "${args[@]}"
 }
@@ -1386,17 +1502,140 @@ cmd_todo_update() {
   state_helper "${args[@]}"
 }
 
-cmd_report_generate() {
-  local dir="" engagement=""
+cmd_coverage_set() {
+  local dir="" engagement="" module="" status="" reason="" notes=""
   while (($#)); do
     case "$1" in
       --dir) dir="${2:-}"; shift 2 ;;
       --engagement) engagement="${2:-}"; shift 2 ;;
+      --module) module="${2:-}"; shift 2 ;;
+      --status) status="${2:-}"; shift 2 ;;
+      --reason) reason="${2:-}"; shift 2 ;;
+      --notes) notes="${2:-}"; shift 2 ;;
+      *) die "unknown coverage set argument: $1" ;;
+    esac
+  done
+  [[ -n "$module" && -n "$status" ]] || die 'coverage set requires --module and --status'
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(coverage-set --dir "$dir" --module "$module" --status "$status")
+  append_arg_if_set args --reason "$reason"
+  append_arg_if_set args --notes "$notes"
+  state_helper "${args[@]}"
+}
+
+cmd_coverage_list() {
+  local dir="" engagement="" json=0
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --json) json=1; shift ;;
+      *) die "unknown coverage list argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(coverage-list --dir "$dir")
+  [[ "$json" == "1" ]] && args+=(--json)
+  state_helper "${args[@]}"
+}
+
+cmd_coverage() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'coverage requires: set or list'
+  shift || true
+  case "$subcommand" in
+    set) cmd_coverage_set "$@" ;;
+    list) cmd_coverage_list "$@" ;;
+    *) die "unknown coverage subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_context_show() {
+  local dir="" engagement="" json=0 refresh=0 max_items=""
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --json) json=1; shift ;;
+      --refresh) refresh=1; shift ;;
+      --max-items) max_items="${2:-}"; shift 2 ;;
+      *) die "unknown context show argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(context-show --dir "$dir")
+  [[ "$json" == "1" ]] && args+=(--json)
+  [[ "$refresh" == "1" ]] && args+=(--refresh)
+  append_arg_if_set args --max-items "$max_items"
+  state_helper "${args[@]}"
+}
+
+cmd_context() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'context requires: show'
+  shift || true
+  case "$subcommand" in
+    show) cmd_context_show "$@" ;;
+    *) die "unknown context subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_cache_status() {
+  local dir="" engagement="" json=0
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --json) json=1; shift ;;
+      *) die "unknown cache status argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(cache-status --dir "$dir" --state-root "$(state_root_abs)")
+  [[ "$json" == "1" ]] && args+=(--json)
+  state_helper "${args[@]}"
+}
+
+cmd_cache() {
+  local subcommand="${1:-}"
+  [[ -n "$subcommand" ]] || die 'cache requires: status'
+  shift || true
+  case "$subcommand" in
+    status) cmd_cache_status "$@" ;;
+    *) die "unknown cache subcommand: $subcommand" ;;
+  esac
+}
+
+cmd_report_generate() {
+  local dir="" engagement="" allow_incomplete=0
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --allow-incomplete) allow_incomplete=1; shift ;;
       *) die "unknown report generate argument: $1" ;;
     esac
   done
   dir="$(resolve_engagement_dir "$dir" "$engagement")"
-  state_helper report-generate --dir "$dir"
+  local args=(report-generate --dir "$dir")
+  [[ "$allow_incomplete" == "1" ]] && args+=(--allow-incomplete)
+  state_helper "${args[@]}"
+}
+
+cmd_report_validate() {
+  local dir="" engagement="" json=0
+  while (($#)); do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 ;;
+      --engagement) engagement="${2:-}"; shift 2 ;;
+      --json) json=1; shift ;;
+      *) die "unknown report validate argument: $1" ;;
+    esac
+  done
+  dir="$(resolve_engagement_dir "$dir" "$engagement")"
+  local args=(report-validate --dir "$dir")
+  [[ "$json" == "1" ]] && args+=(--json)
+  state_helper "${args[@]}"
 }
 
 cmd_report_list() {
@@ -1447,10 +1686,11 @@ cmd_todo() {
 
 cmd_report() {
   local subcommand="${1:-}"
-  [[ -n "$subcommand" ]] || die 'report requires: generate or list'
+  [[ -n "$subcommand" ]] || die 'report requires: validate, generate, or list'
   shift || true
   case "$subcommand" in
     generate) cmd_report_generate "$@" ;;
+    validate) cmd_report_validate "$@" ;;
     list) cmd_report_list "$@" ;;
     *) die "unknown report subcommand: $subcommand" ;;
   esac
@@ -1489,10 +1729,14 @@ main() {
     zap) cmd_zap "$@" ;;
     browser) cmd_browser "$@" ;;
     engagement) cmd_engagement "$@" ;;
+    scope) cmd_scope "$@" ;;
     evidence) cmd_evidence "$@" ;;
     artifact) cmd_artifact "$@" ;;
     finding) cmd_finding "$@" ;;
     todo) cmd_todo "$@" ;;
+    coverage) cmd_coverage "$@" ;;
+    context) cmd_context "$@" ;;
+    cache) cmd_cache "$@" ;;
     report) cmd_report "$@" ;;
 
     preflight) sandbox_status "$@" ;;

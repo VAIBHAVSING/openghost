@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from scope_utils import list_values, scalar, section
+
 BASE_MODULES = ["surface-map", "server-integrity"]
 FINAL_MODULE = "evidence-reporting"
 
@@ -24,6 +26,21 @@ def add_once(items: list[str], value: str) -> None:
         items.append(value)
 
 
+def relevant_scope_text(text: str) -> str:
+    """Exclude free-form notes and false-valued gates from module routing."""
+    if not text:
+        return ""
+    values = [scalar(text, "target_url")]
+    for name in ["allowed_hosts", "objectives", "crown_jewels", "allowed_write_actions"]:
+        values.extend(list_values(text, name))
+    active = section(text, "active_testing")
+    values.extend(
+        match.group(1).replace("_", " ")
+        for match in re.finditer(r"(?im)^\s*([a-z0-9_]+)\s*:\s*true\s*$", active)
+    )
+    return "\n".join(value for value in values if value)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Select openghost-skill pentest modules")
     parser.add_argument("--url", default="")
@@ -31,9 +48,11 @@ def main() -> int:
     parser.add_argument("--auth")
     parser.add_argument("--traits", default="", help="Comma-separated observed traits")
     parser.add_argument("--format", choices=["json", "text"], default="json")
+    parser.add_argument("--explain", action="store_true", help="Include detected routing traits in JSON output.")
     args = parser.parse_args()
 
-    haystack = "\n".join([args.url, read_text(args.scope), read_text(args.auth), args.traits]).lower()
+    scope_text = relevant_scope_text(read_text(args.scope))
+    haystack = "\n".join([args.url, scope_text, read_text(args.auth), args.traits]).lower()
     traits = {part.strip().lower() for part in args.traits.split(",") if part.strip()}
 
     modules = list(BASE_MODULES)
@@ -62,8 +81,18 @@ def main() -> int:
 
     add_once(modules, FINAL_MODULE)
 
+    detected = {
+        "authentication": has_auth,
+        "multiple_roles_or_tenants": multiple_roles,
+        "api": has_api,
+        "input_surfaces": has_inputs,
+        "browser_policy": has_browser_policy,
+        "http_edge": has_http_edge,
+        "business_logic": has_business,
+    }
     if args.format == "json":
-        print(json.dumps(modules, indent=2))
+        output: object = {"modules": modules, "detected": detected} if args.explain else modules
+        print(json.dumps(output, indent=2))
     else:
         print("\n".join(modules))
     return 0

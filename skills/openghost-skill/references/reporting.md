@@ -9,7 +9,7 @@ Use this reference to convert confirmed evidence into actionable, defensible fin
 - Evidence Standards
 - Severity Guidelines
 - CVSS Guidance
-- OWASP and CWE Mapping
+- OWASP, ASVS, WSTG, and CWE Mapping
 - Finding Template
 - Evidence Handling
 - Save Findings
@@ -32,7 +32,7 @@ Every finding must include:
 10. **CVSS when used** - version, score, vector, and v4.0 nomenclature where applicable.
 11. **Priority** - P0-P4 remediation priority.
 12. **Priority rationale** - CVSS plus business context, exploitability, asset criticality, and urgency signals when applicable.
-13. **References** - OWASP WSTG/API Top 10/CWE/CVSS where applicable.
+13. **References** - versioned OWASP WSTG, ASVS 5.0.0, API Top 10, CWE, and CVSS mappings where applicable.
 
 ## Do Not Report As Confirmed
 
@@ -121,21 +121,21 @@ Primary references:
 - FIRST CVSS v4.0 Specification Document: https://www.first.org/cvss/specification-document
 - FIRST CVSS v4.0 User Guide: https://www.first.org/cvss/v4.0/user-guide
 
-## OWASP and CWE Mapping
+## OWASP, ASVS, WSTG, and CWE Mapping
 
 Common mappings:
 
 | Issue | OWASP | CWE |
 |---|---|---|
-| SQL injection | A03 Injection, WSTG-INPV-05 | CWE-89 |
-| XSS | A03 Injection, WSTG-INPV-01 | CWE-79 |
-| SSRF | A10 SSRF, WSTG-INPV-19 | CWE-918 |
-| IDOR/BOLA | A01 Broken Access Control, API1 | CWE-639, CWE-862 |
-| BFLA | API5 | CWE-862 |
-| Mass assignment | API3/BOPLA | CWE-915 |
-| CSRF | WSTG-SESS-05 | CWE-352 |
-| XXE | A05 Security Misconfiguration | CWE-611 |
-| Open redirect | WSTG-CLNT-04 | CWE-601 |
+| SQL injection | A05:2025 Injection, WSTG-v42-INPV-05 | CWE-89 |
+| XSS | A05:2025 Injection, WSTG-v42-INPV-01 | CWE-79 |
+| SSRF | WSTG-v42-INPV-19 | CWE-918 |
+| IDOR/BOLA | A01:2025 Broken Access Control, API1:2023 | CWE-639, CWE-862 |
+| BFLA | API5:2023 | CWE-862 |
+| Mass assignment | API3:2023/BOPLA | CWE-915 |
+| CSRF | WSTG-v42-SESS-05 | CWE-352 |
+| XXE | A05:2025 Injection | CWE-611 |
+| Open redirect | WSTG-v42-CLNT-04 | CWE-601 |
 | Request smuggling | HTTP edge | CWE-444 |
 | Race condition | business logic | CWE-362 |
 
@@ -190,11 +190,12 @@ Specific implementation guidance.
 
 ## Evidence Handling
 
-- Add evidence through `openghost evidence add`; the helper copies the file into the v2 evidence store and records metadata in `state/evidence.json`.
+- Add evidence through `openghost evidence add`; the helper copies the file into the v2 evidence store and records SHA-256, size, media type, capture time, and redaction state in `state/evidence.json`.
 - Use `--kind request`, `--kind response`, `--kind screenshot`, `--kind tool-output`, `--kind transcript`, or another precise kind.
 - Link evidence to a finding with `--finding F-001` when the finding already exists, or add it unlinked first and reference the returned `E-###` from `finding add`.
 - Use `openghost artifact add` for inventories, cookie jars, tool work files, scripts, browser captures, and packages that support the engagement but are not direct proof.
 - Redact secrets, tokens, cookies, PII, and customer data.
+- Mark each record `--redaction raw`, `redacted`, or `sanitized`, then run `openghost evidence verify` before delivery.
 - Keep enough original context to reproduce.
 - Name source files descriptively before adding them: `idor-invoice-userb-response.txt`.
 
@@ -206,6 +207,7 @@ openghost evidence add \
   --kind response \
   --title "User A token reads user B invoice" \
   --module access-control \
+  --redaction redacted \
   --url "/api/invoices/1005"
 
 openghost finding add \
@@ -223,7 +225,8 @@ openghost finding add \
   --cvss "CVSS:4.0/... (score X.X, CVSS-B)" \
   --priority-rationale "P1 because exploitation is a single authenticated request against sensitive billing data" \
   --remediation "Enforce object-level authorization on every invoice read and download query" \
-  --wstg "WSTG-ATHZ-04"
+  --wstg "WSTG-v42-ATHZ-04" \
+  --asvs "ASVS-5.0.0-V8"
 ```
 
 Use `--status draft` or `--status likely` for incomplete leads. Confirmed findings require severity, module, affected asset, confidence of 90 or higher, registered evidence, reproduction steps, impact, remediation, priority, and priority rationale.
@@ -270,7 +273,12 @@ Controls that worked well.
 ## Report Generation
 
 ```bash
+openghost evidence verify
+openghost coverage list
+openghost report validate
 openghost report generate
 ```
 
-The generator writes both `reports/report-<timestamp>.md` and `reports/report-<timestamp>.json`, then records them in `state/reports.json`. Review generated reports manually before delivery.
+The final quality gate checks explicit scope review, closed module coverage, evidence integrity, complete confirmed findings, and unresolved high-priority testing work. The generator writes both `reports/report-<timestamp>.md` and `reports/report-<timestamp>.json`, then records them in `state/reports.json`.
+
+If work is intentionally incomplete, use `openghost report generate --allow-incomplete`. The output is visibly marked `DRAFT - INCOMPLETE`; do not deliver it as a final report. Review every generated report manually.

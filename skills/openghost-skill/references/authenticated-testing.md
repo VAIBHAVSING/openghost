@@ -2,6 +2,14 @@
 
 Use this reference to set up authentication contexts for multi-role and multi-tenant testing.
 
+## Contents
+
+- Required contexts
+- Bearer tokens and cookie sessions
+- Multi-role replay
+- OAuth/OIDC and JWT handling
+- Testing patterns and evidence storage
+
 ## Required Contexts
 
 Use as many of these as the engagement provides:
@@ -20,9 +28,11 @@ Record each account, role, tenant, and token/cookie file in `notes/auth-context.
 ## Bearer Token
 
 ```bash
-export AUTH_HEADER="Authorization: Bearer <TOKEN>"
-openghost bash 'curl -s -i -H "Authorization: Bearer <TOKEN>" https://<target>/api/me'
+export OPENGHOST_TARGET_BEARER_TOKEN='<target-app-token>'
+openghost bash 'curl -s -i -H "Authorization: Bearer ${OPENGHOST_TARGET_BEARER_TOKEN}" https://<target>/api/me'
 ```
+
+This is a credential for the authorized target application, not an OpenGhost service token. Docker receives only the environment-variable name on the CLI; the value is not embedded in the recorded command.
 
 ## Cookie-Based Session
 
@@ -40,10 +50,12 @@ For every sensitive endpoint, replay with each context:
 
 ```bash
 # user A reads own object
-openghost bash 'curl -s -i -H "Authorization: Bearer <USER_A_TOKEN>" https://<target>/api/users/<USER_A_ID>'
+OPENGHOST_TARGET_BEARER_TOKEN="$USER_A_TOKEN" \
+  openghost bash 'curl -s -i -H "Authorization: Bearer ${OPENGHOST_TARGET_BEARER_TOKEN}" https://<target>/api/users/<USER_A_ID>'
 
 # user A reads user B object
-openghost bash 'curl -s -i -H "Authorization: Bearer <USER_A_TOKEN>" https://<target>/api/users/<USER_B_ID>'
+OPENGHOST_TARGET_BEARER_TOKEN="$USER_A_TOKEN" \
+  openghost bash 'curl -s -i -H "Authorization: Bearer ${OPENGHOST_TARGET_BEARER_TOKEN}" https://<target>/api/users/<USER_B_ID>'
 
 # unauthenticated
 openghost bash 'curl -s -i https://<target>/api/users/<USER_A_ID>'

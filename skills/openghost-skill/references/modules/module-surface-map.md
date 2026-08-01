@@ -2,6 +2,18 @@
 
 Covers: scope-safe reconnaissance, host discovery, port scanning, web crawling, endpoint inventory, subdomain enumeration, DNS checks, certificate transparency, JavaScript mining, API discovery, shadow API discovery, technology fingerprinting, WAF/CDN detection, and vulnerability triage.
 
+## Contents
+
+- Goals and output artifacts
+- Port/service and web-server scanning
+- Subdomain, DNS, and certificate transparency
+- Crawling, JavaScript mining, and API inventory
+- Technology fingerprinting, endpoint inventory, and triage
+
+## Execution Gate
+
+Passive inventory does not authorize active discovery. Port scanning and content discovery require allowed hosts and ports, current test windows, request/rate caps, and the applicable `active_testing` gate. Exclude third-party infrastructure unless it is separately authorized.
+
 ## Goals
 
 - Build a complete list of in-scope hosts, services, applications, APIs, parameters, authentication boundaries, and technologies.

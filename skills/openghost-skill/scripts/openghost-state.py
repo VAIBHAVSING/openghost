@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
+import mimetypes
+import os
 import re
 import shutil
 import sys
@@ -13,15 +16,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from scope_utils import validate_scope_file
+
 
 SCHEMA_VERSION = 2
+CONTEXT_CACHE_SCHEMA_VERSION = 1
 SEVERITIES = {"critical", "high", "medium", "low", "info"}
 PRIORITIES = {"P0", "P1", "P2", "P3", "P4"}
 FINDING_STATUSES = {"confirmed", "likely", "draft", "fixed", "accepted-risk", "false-positive"}
 TODO_STATUSES = {"pending", "in-progress", "done", "skip", "cancelled"}
+COVERAGE_STATUSES = {"planned", "in-progress", "tested", "partial", "skipped", "not-applicable"}
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
 NARRATIVE_MERGE_FIELDS = {"summary", "impact", "exploitability", "remediation", "priority_rationale"}
+
+os.umask(0o077)
 
 
 def utc_now() -> str:
@@ -73,6 +82,14 @@ def write_json(path: Path, data: Any) -> None:
     tmp.replace(path)
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def append_activity(root: Path, action: str, payload: dict[str, Any]) -> None:
     entry = {"at": utc_now(), "action": action, **payload}
     path = state_path(root, "activity.jsonl")
@@ -95,6 +112,8 @@ def ensure_layout(root: Path) -> None:
         "artifacts/packages",
         "reports",
         "runs",
+        "cache/context",
+        "cache/assessment",
         "traffic",
         "browser",
         "scripts",
@@ -104,7 +123,7 @@ def ensure_layout(root: Path) -> None:
         "zap/reports",
     ]:
         (root / rel).mkdir(parents=True, exist_ok=True)
-    for name in ["findings.json", "evidence.json", "artifacts.json", "todos.json", "reports.json"]:
+    for name in ["findings.json", "evidence.json", "artifacts.json", "todos.json", "reports.json", "coverage.json"]:
         path = state_path(root, name)
         if not path.exists():
             write_json(path, [])
@@ -167,6 +186,20 @@ def copy_into_store(source: str, root: Path, dest_dir: Path, record_id: str) -> 
     return dest.resolve().relative_to(root).as_posix()
 
 
+def stored_file_metadata(root: Path, rel_path: str) -> dict[str, Any]:
+    path = (root / rel_path).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError:
+        die(f"stored path escapes engagement directory: {rel_path}")
+    mime_type, _ = mimetypes.guess_type(path.name)
+    return {
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+        "mime_type": mime_type or "application/octet-stream",
+    }
+
+
 def unique_path(path: Path) -> Path:
     if not path.exists():
         return path
@@ -223,6 +256,7 @@ def command_engagement_init(args: argparse.Namespace) -> int:
 
     scope = f"""target_url: "{args.url}"
 authorization:
+  reviewed: false
   sponsor: "TODO"
   authorization_document: "TODO"
   test_window: "TODO"
@@ -232,6 +266,9 @@ authorization:
   check_in_cadence: "TODO"
 allowed_hosts:
   - "{args.host}"
+allowed_ports:
+  - 80
+  - 443
 exclusions:
   paths:
     - /logout
@@ -240,6 +277,8 @@ rate_limits:
   requests_per_second: 5
   max_concurrent_requests: 3
 active_testing:
+  content_discovery: false
+  reflected_marker_probes: false
   zap_active_scan: false
   stateful_api_fuzzing: false
   race_tests: false
@@ -281,6 +320,7 @@ notes: "Edit this file before testing. Add every authorized host, exclusion, com
             "evidence": "state/evidence.json",
             "artifacts": "state/artifacts.json",
             "todos": "state/todos.json",
+            "coverage": "state/coverage.json",
             "reports": "state/reports.json",
             "activity": "state/activity.jsonl",
         },
@@ -300,6 +340,7 @@ def command_evidence_add(args: argparse.Namespace) -> int:
     kind = slugify(args.kind, "raw")
     finding = args.finding or "unlinked"
     rel_path = copy_into_store(args.path, root, root / "evidence" / finding / kind, eid)
+    integrity = stored_file_metadata(root, rel_path)
     record = {
         "schema_version": SCHEMA_VERSION,
         "id": eid,
@@ -314,6 +355,9 @@ def command_evidence_add(args: argparse.Namespace) -> int:
         "command": args.command or "",
         "notes": args.notes or "",
         "created_at": utc_now(),
+        "captured_at": utc_now(),
+        "redaction": args.redaction,
+        **integrity,
     }
     records.append(record)
     save_records(root, "evidence.json", records)
@@ -331,6 +375,55 @@ def command_evidence_list(args: argparse.Namespace) -> int:
         print(f"[{item.get('id', '?')}] {item.get('kind', '')}{linked} {item.get('title', '')} -> {item.get('path', '')}")
     print(f"Total: {len(records)}")
     return 0
+
+
+def verify_evidence_records(root: Path) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in load_records(root, "evidence.json"):
+        rel_path = str(item.get("path") or "")
+        path = (root / rel_path).resolve()
+        status = "valid"
+        detail = ""
+        try:
+            path.relative_to(root.resolve())
+        except ValueError:
+            status, detail = "invalid", "path escapes engagement directory"
+        if status == "valid" and not path.is_file():
+            status, detail = "missing", "stored evidence file is missing"
+        expected = str(item.get("sha256") or "")
+        actual = ""
+        if status == "valid":
+            actual = sha256_file(path)
+            if not expected:
+                status, detail = "unverified", "legacy record has no SHA-256 digest"
+            elif actual != expected:
+                status, detail = "modified", "SHA-256 digest does not match the registered evidence"
+        results.append(
+            {
+                "id": item.get("id", ""),
+                "path": rel_path,
+                "status": status,
+                "detail": detail,
+                "expected_sha256": expected,
+                "actual_sha256": actual,
+            }
+        )
+    return results
+
+
+def command_evidence_verify(args: argparse.Namespace) -> int:
+    root = engagement_dir(args.dir)
+    require_v2_engagement(root)
+    results = verify_evidence_records(root)
+    valid = sum(1 for item in results if item["status"] == "valid")
+    if args.json:
+        print(json.dumps({"valid": valid, "total": len(results), "results": results}, indent=2))
+    else:
+        for item in results:
+            suffix = f" - {item['detail']}" if item["detail"] else ""
+            print(f"[{item['id']}] {item['status']} {item['path']}{suffix}")
+        print(f"Valid: {valid}/{len(results)}")
+    return 0 if valid == len(results) else 1
 
 
 def command_artifact_add(args: argparse.Namespace) -> int:
@@ -379,6 +472,12 @@ def validate_finding(args: argparse.Namespace, evidence_ids: list[str]) -> None:
         die(f"invalid finding status: {args.status}")
     if args.confidence is not None and not (0 <= args.confidence <= 100):
         die("--confidence must be between 0 and 100")
+    if args.cvss and not re.search(r"\bCVSS:(?:4\.0|3\.1)/", args.cvss):
+        die("--cvss must include a CVSS:4.0/ or CVSS:3.1/ vector")
+    if args.wstg and not args.wstg.startswith("WSTG-v42-"):
+        die("--wstg must use a versioned WSTG-v42 identifier")
+    if args.asvs and not args.asvs.startswith("ASVS-5.0.0-"):
+        die("--asvs must use an ASVS-5.0.0 identifier")
     if args.status == "confirmed":
         missing = []
         if not args.module:
@@ -456,6 +555,7 @@ def command_finding_add(args: argparse.Namespace) -> int:
         "owasp": args.owasp or "",
         "cwe": args.cwe or "",
         "wstg_id": args.wstg or "",
+        "asvs": args.asvs or "",
         "references": split_refs(args.reference),
         "notes": args.notes or "",
         "created_at": utc_now(),
@@ -550,6 +650,301 @@ def command_todo_update(args: argparse.Namespace) -> int:
     save_records(root, "todos.json", todos)
     append_activity(root, "todo.update", {"id": args.id, "status": args.status})
     print(json.dumps({"updated": args.id, "status": args.status}))
+    return 0
+
+
+def command_coverage_set(args: argparse.Namespace) -> int:
+    if args.status not in COVERAGE_STATUSES:
+        die("invalid coverage status")
+    root = engagement_dir(args.dir)
+    require_v2_engagement(root)
+    ensure_layout(root)
+    records = load_records(root, "coverage.json")
+    record = next((item for item in records if item.get("module") == args.module), None)
+    if record is None:
+        record = {"schema_version": SCHEMA_VERSION, "module": args.module, "created_at": utc_now()}
+        records.append(record)
+    record.update(
+        {
+            "status": args.status,
+            "reason": args.reason or "",
+            "notes": args.notes or "",
+            "updated_at": utc_now(),
+        }
+    )
+    save_records(root, "coverage.json", sorted(records, key=lambda item: str(item.get("module") or "")))
+    append_activity(root, "coverage.set", {"module": args.module, "status": args.status})
+    print(json.dumps({"module": args.module, "status": args.status}))
+    return 0
+
+
+def command_coverage_list(args: argparse.Namespace) -> int:
+    root = engagement_dir(args.dir)
+    require_v2_engagement(root)
+    records = load_records(root, "coverage.json")
+    if args.json:
+        print(json.dumps(records, indent=2))
+    else:
+        for item in records:
+            reason = f" - {item.get('reason')}" if item.get("reason") else ""
+            print(f"[{item.get('status', '?')}] {item.get('module', '')}{reason}")
+        print(f"Total: {len(records)}")
+    return 0
+
+
+def latest_assessment_path(root: Path) -> Path | None:
+    candidates = sorted(root.glob("runs/assess-*/assessment.json"), reverse=True)
+    return candidates[0] if candidates else None
+
+
+def context_cache_key(root: Path, max_items: int) -> str:
+    inputs: dict[str, str | int] = {
+        "schema": CONTEXT_CACHE_SCHEMA_VERSION,
+        "max_items": max_items,
+    }
+    for rel in [
+        "engagement.json",
+        "scope.yaml",
+        "state/findings.json",
+        "state/evidence.json",
+        "state/artifacts.json",
+        "state/todos.json",
+        "state/coverage.json",
+        "state/reports.json",
+    ]:
+        path = root / rel
+        inputs[rel] = sha256_file(path) if path.is_file() else "missing"
+    latest = latest_assessment_path(root)
+    inputs["latest_assessment"] = sha256_file(latest) if latest else "missing"
+    return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def build_context_summary(root: Path, max_items: int) -> dict[str, Any]:
+    engagement = read_json(root / "engagement.json", {})
+    findings = load_records(root, "findings.json")
+    todos = load_records(root, "todos.json")
+    evidence = load_records(root, "evidence.json")
+    artifacts = load_records(root, "artifacts.json")
+    coverage = load_records(root, "coverage.json")
+    reports = load_records(root, "reports.json")
+    confirmed = sorted(
+        (item for item in findings if item.get("status") == "confirmed"),
+        key=finding_sort_key,
+    )
+    leads = sorted(
+        (item for item in findings if item.get("status") in {"likely", "draft"}),
+        key=finding_sort_key,
+    )
+    pending = [item for item in todos if item.get("status") in {"pending", "in-progress"}]
+    latest_path = latest_assessment_path(root)
+    latest = read_json(latest_path, {}) if latest_path else {}
+    scope_status = validate_scope_file(root / "scope.yaml")
+    scope_ready = bool(scope_status["passed"])
+    integrity = verify_evidence_records(root)
+    invalid_evidence = [item for item in integrity if item["status"] != "valid"]
+    recommendations: list[str] = []
+    if not scope_ready:
+        recommendations.append("Complete and explicitly approve scope.yaml before active testing.")
+    if leads:
+        recommendations.append("Validate the highest-severity likely findings; do not report them as confirmed yet.")
+    if pending:
+        recommendations.append("Resolve or disposition the highest-priority open testing items.")
+    if invalid_evidence:
+        recommendations.append("Repair or explain evidence-integrity failures before report delivery.")
+    if not coverage:
+        recommendations.append("Record module coverage so report limitations are explicit.")
+    if not recommendations:
+        recommendations.append("Generate and validate the delivery report.")
+
+    def brief_finding(item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": item.get("id"),
+            "severity": item.get("severity"),
+            "priority": item.get("priority"),
+            "title": item.get("title"),
+            "asset": finding_asset_text(item),
+        }
+
+    return {
+        "schema_version": CONTEXT_CACHE_SCHEMA_VERSION,
+        "generated_at": utc_now(),
+        "engagement": {
+            "name": engagement.get("name"),
+            "target_url": engagement.get("target_url"),
+            "status": engagement.get("status"),
+            "scope_ready": scope_ready,
+            "scope_issues": scope_status["issues"],
+        },
+        "counts": {
+            "confirmed_findings": len(confirmed),
+            "likely_or_draft_findings": len(leads),
+            "open_todos": len(pending),
+            "evidence_records": len(evidence),
+            "supporting_artifacts": len(artifacts),
+            "invalid_evidence": len(invalid_evidence),
+            "coverage_modules": len(coverage),
+            "reports": len(reports),
+        },
+        "top_confirmed": [brief_finding(item) for item in confirmed[:max_items]],
+        "top_leads": [brief_finding(item) for item in leads[:max_items]],
+        "open_todos": [
+            {key: item.get(key) for key in ["id", "priority", "module", "task", "status"]}
+            for item in pending[:max_items]
+        ],
+        "coverage": [
+            {key: item.get(key) for key in ["module", "status", "reason"]}
+            for item in coverage
+        ],
+        "latest_assessment": {
+            "status": latest.get("status"),
+            "generated_at": latest.get("generated_at"),
+            "mode": latest.get("mode"),
+            "cache": latest.get("cache") or {},
+            "errors": len(latest.get("errors") or []),
+        }
+        if latest
+        else None,
+        "latest_report": (
+            {key: reports[-1].get(key) for key in ["id", "delivery_status", "quality_gate_passed", "generated_at", "markdown"]}
+            if reports
+            else None
+        ),
+        "recommended_next_actions": recommendations[:max_items],
+        "usage": "Use this compact snapshot first. Load raw state or evidence only for the active hypothesis.",
+    }
+
+
+def render_context_markdown(summary: dict[str, Any]) -> str:
+    engagement = summary["engagement"]
+    counts = summary["counts"]
+    lines = [
+        "# OpenGhost engagement context",
+        "",
+        f"Target: {engagement.get('target_url') or 'N/A'}",
+        f"Scope ready: {'yes' if engagement.get('scope_ready') else 'no'}",
+        (
+            "State: "
+            f"{counts['confirmed_findings']} confirmed, "
+            f"{counts['likely_or_draft_findings']} leads, "
+            f"{counts['open_todos']} open todos, "
+            f"{counts['evidence_records']} evidence records"
+        ),
+        "",
+    ]
+    if not engagement.get("scope_ready"):
+        lines += ["## Scope blockers", ""]
+        lines.extend(f"- {issue}" for issue in (engagement.get("scope_issues") or [])[:5])
+        lines.append("")
+    for heading, key in [("Confirmed findings", "top_confirmed"), ("Leads to validate", "top_leads")]:
+        items = summary[key]
+        if items:
+            lines += [f"## {heading}", ""]
+            for item in items:
+                priority = f" {item.get('priority')}" if item.get("priority") else ""
+                lines.append(f"- {item.get('id')} {str(item.get('severity') or '').upper()}{priority}: {item.get('title')}")
+            lines.append("")
+    if summary["open_todos"]:
+        lines += ["## Open work", ""]
+        for item in summary["open_todos"]:
+            lines.append(f"- {item.get('id')} [{item.get('priority')}]: {item.get('task')}")
+        lines.append("")
+    if summary["coverage"]:
+        lines += ["## Coverage", ""]
+        for item in summary["coverage"]:
+            lines.append(f"- {item.get('module')}: {item.get('status')}")
+        lines.append("")
+    latest = summary.get("latest_assessment")
+    if latest:
+        cache = latest.get("cache") or {}
+        lines += [
+            "## Latest assessment",
+            "",
+            f"- Status: {latest.get('status') or 'unknown'}",
+            f"- Mode: {latest.get('mode') or 'unknown'}",
+            f"- Cache: {cache.get('hits', 0)} hit(s), {cache.get('misses', 0)} miss(es)",
+            f"- Errors: {latest.get('errors', 0)}",
+            "",
+        ]
+    latest_report = summary.get("latest_report")
+    if latest_report:
+        lines += [
+            "## Latest report",
+            "",
+            f"- ID: {latest_report.get('id')}",
+            f"- Status: {latest_report.get('delivery_status') or 'legacy'}",
+            f"- Quality gate: {'passed' if latest_report.get('quality_gate_passed') else 'not passed or legacy'}",
+            f"- Path: {latest_report.get('markdown')}",
+            "",
+        ]
+    lines += ["## Next actions", ""]
+    lines.extend(f"- {item}" for item in summary["recommended_next_actions"])
+    lines += ["", summary["usage"], ""]
+    return "\n".join(lines)
+
+
+def command_context_show(args: argparse.Namespace) -> int:
+    root = engagement_dir(args.dir)
+    require_v2_engagement(root)
+    ensure_layout(root)
+    key = context_cache_key(root, args.max_items)
+    cache_dir = root / "cache" / "context"
+    json_path = cache_dir / f"{key}.json"
+    markdown_path = cache_dir / f"{key}.md"
+    cache_age_seconds = (
+        max(0, int(datetime.now(timezone.utc).timestamp() - json_path.stat().st_mtime))
+        if json_path.is_file()
+        else 0
+    )
+    cache_hit = json_path.is_file() and markdown_path.is_file() and cache_age_seconds <= 300 and not args.refresh
+    if cache_hit:
+        summary = read_json(json_path, {})
+    else:
+        summary = build_context_summary(root, args.max_items)
+        summary["cache"] = {"key": key, "source": "local engagement state"}
+        write_json(json_path, summary)
+        markdown_path.write_text(render_context_markdown(summary), encoding="utf-8")
+    summary["cache_hit"] = cache_hit
+    summary["cache_age_seconds"] = cache_age_seconds if cache_hit else 0
+    if args.json:
+        print(json.dumps(summary, indent=2))
+    else:
+        print(markdown_path.read_text(encoding="utf-8"), end="")
+        print(f"context_cache: {'hit' if cache_hit else 'miss'}")
+    return 0
+
+
+def command_cache_status(args: argparse.Namespace) -> int:
+    root = engagement_dir(args.dir)
+    require_v2_engagement(root)
+    ensure_layout(root)
+    engagement_cache_root = root / "cache"
+    shared_cache_root = Path(args.state_root).expanduser().resolve() / "cache" if args.state_root else engagement_cache_root
+    groups: dict[str, dict[str, int]] = {}
+    for name in ["scripts", "assessment", "context"]:
+        directory = shared_cache_root / name if name == "scripts" else engagement_cache_root / name
+        files = [path for path in directory.rglob("*") if path.is_file()] if directory.exists() else []
+        groups[name] = {
+            "files": len(files),
+            "bytes": sum(path.stat().st_size for path in files),
+        }
+    result = {
+        "cache_roots": {
+            "shared_scripts": str(shared_cache_root / "scripts"),
+            "engagement": str(engagement_cache_root),
+        },
+        "groups": groups,
+        "total_files": sum(item["files"] for item in groups.values()),
+        "total_bytes": sum(item["bytes"] for item in groups.values()),
+        "note": "All caches are local generated engagement data; no OpenGhost service is involved.",
+    }
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"shared script cache: {shared_cache_root / 'scripts'}")
+        print(f"engagement cache: {engagement_cache_root}")
+        for name, item in groups.items():
+            print(f"- {name}: {item['files']} file(s), {item['bytes']} byte(s)")
+        print(f"total: {result['total_files']} file(s), {result['total_bytes']} byte(s)")
     return 0
 
 
@@ -698,6 +1093,7 @@ def merge_duplicate_finding(primary: dict[str, Any], duplicate: dict[str, Any]) 
         "owasp",
         "cwe",
         "wstg_id",
+        "asvs",
     ]:
         primary_value = primary.get(field)
         duplicate_value = duplicate.get(field)
@@ -768,8 +1164,20 @@ def scope_excerpt(root: Path) -> str:
     return text
 
 
-def report_readiness(findings: list[dict[str, Any]]) -> list[str]:
+def report_readiness(
+    root: Path,
+    findings: list[dict[str, Any]],
+    todos: list[dict[str, Any]],
+    evidence: dict[str, dict[str, Any]],
+    coverage: list[dict[str, Any]],
+) -> list[str]:
     issues: list[str] = []
+    scope_result = validate_scope_file(root / "scope.yaml", enforce_window=False)
+    issues.extend(f"scope: {issue}" for issue in scope_result["issues"])
+    integrity_by_id = {item["id"]: item for item in verify_evidence_records(root)}
+    for evidence_id, integrity in integrity_by_id.items():
+        if integrity.get("status") != "valid":
+            issues.append(f"evidence {evidence_id} integrity is {integrity.get('status', 'unknown')}")
     for finding in findings:
         if finding.get("status") != "confirmed":
             continue
@@ -788,6 +1196,34 @@ def report_readiness(findings: list[dict[str, Any]]) -> list[str]:
             missing.append("priority rationale")
         if missing:
             issues.append(f"{finding.get('id', '?')} missing {', '.join(missing)}")
+        cvss = str(finding.get("cvss") or "")
+        if cvss and not re.search(r"\bCVSS:(?:4\.0|3\.1)/", cvss):
+            issues.append(f"{finding.get('id', '?')} CVSS must include a v4.0 or v3.1 vector")
+        wstg = str(finding.get("wstg_id") or "")
+        if wstg and not wstg.startswith("WSTG-v42-"):
+            issues.append(f"{finding.get('id', '?')} WSTG mapping must use a versioned WSTG-v42 identifier")
+        asvs = str(finding.get("asvs") or "")
+        if asvs and not asvs.startswith("ASVS-5.0.0-"):
+            issues.append(f"{finding.get('id', '?')} ASVS mapping must use an ASVS-5.0.0 identifier")
+        for evidence_id in finding.get("evidence") or []:
+            if evidence_id not in evidence:
+                issues.append(f"{finding.get('id', '?')} references unknown evidence {evidence_id}")
+                continue
+    if not coverage:
+        issues.append("no assessment-module coverage has been recorded")
+    for item in coverage:
+        if item.get("status") in {"planned", "in-progress", "partial"}:
+            issues.append(f"coverage for {item.get('module', '?')} is {item.get('status')}")
+        if item.get("status") in {"skipped", "not-applicable"} and not item.get("reason"):
+            issues.append(f"coverage for {item.get('module', '?')} requires a reason")
+    for item in todos:
+        if item.get("status") in {"pending", "in-progress"} and str(item.get("priority") or "").lower() in {
+            "critical",
+            "high",
+            "p0",
+            "p1",
+        }:
+            issues.append(f"high-priority testing item {item.get('id', '?')} is still {item.get('status')}")
     return issues
 
 
@@ -800,6 +1236,9 @@ def render_report_markdown(
     todos: list[dict[str, Any]],
     evidence: dict[str, dict[str, Any]],
     artifacts: list[dict[str, Any]],
+    coverage: list[dict[str, Any]],
+    readiness_issues: list[str],
+    delivery_status: str,
     deduplication: dict[str, Any] | None = None,
 ) -> str:
     confirmed = [item for item in findings if item.get("status") == "confirmed"]
@@ -808,7 +1247,8 @@ def render_report_markdown(
     evidence_items = list(evidence.values())
     modules = sorted({item.get("module") for item in findings + todos + evidence_items + artifacts if item.get("module")})
     pending = [item for item in todos if item.get("status") == "pending"]
-    readiness_issues = report_readiness(findings)
+    integrity_results = verify_evidence_records(root)
+    valid_evidence = sum(1 for item in integrity_results if item.get("status") == "valid")
 
     lines: list[str] = [
         "# OpenGhost Penetration Test Report",
@@ -817,13 +1257,25 @@ def render_report_markdown(
         f"**Target URL:** {engagement.get('target_url', 'N/A')}",
         f"**Generated:** {generated_at}",
         f"**Store Schema:** v{SCHEMA_VERSION}",
+        f"**Delivery Status:** {delivery_status}",
         "",
         "## Executive Summary",
         "",
-        f"Confirmed findings: {len(confirmed)}",
-        f"Evidence records: {len(evidence_items)}",
-        f"Supporting artifacts: {len(artifacts)}",
-        f"Open testing items: {len(pending)}",
+        (
+            "This report separates evidence-backed confirmed findings from unvalidated leads. "
+            "Coverage and outstanding work below define what was and was not assessed."
+        ),
+        "",
+        "| Measure | Value |",
+        "|---|---:|",
+        f"| Confirmed findings | {len(confirmed)} |",
+        f"| Leads/drafts excluded from confirmed risk | {len(non_confirmed)} |",
+        f"| Integrity-valid evidence | {valid_evidence}/{len(evidence_items)} |",
+        f"| Supporting artifacts | {len(artifacts)} |",
+        f"| Open testing items | {len(pending)} |",
+        f"| Modules with recorded coverage | {len(coverage)} |",
+        "",
+        "### Confirmed risk by severity",
         "",
         "| Severity | Count |",
         "|---|---:|",
@@ -849,6 +1301,12 @@ def render_report_markdown(
         "",
         "## Methodology",
         "",
+        (
+            "OpenGhost uses an authorization-first, hypothesis-led workflow: establish scope and test gates, "
+            "inventory the authenticated surface, validate abuse cases with bounded requests, preserve evidence, "
+            "and record explicit coverage and limitations. Automated signals remain leads until manually validated."
+        ),
+        "",
     ]
     if modules:
         lines.append("Modules with recorded work: " + ", ".join(modules))
@@ -864,11 +1322,11 @@ def render_report_markdown(
         "",
     ]
     if readiness_issues:
-        lines.append("The following confirmed findings need cleanup before delivery:")
+        lines.append("The following scope, coverage, evidence, or finding issues block final delivery:")
         for issue in readiness_issues:
             lines.append(f"- {issue}")
     else:
-        lines.append("All confirmed findings include evidence, reproduction steps, impact, remediation, priority, and priority rationale.")
+        lines.append("PASSED: scope, coverage, evidence integrity, and confirmed-finding completeness are delivery-ready.")
     duplicate_groups = (deduplication or {}).get("exact_duplicate_groups", [])
     if duplicate_groups:
         lines += ["", "Exact duplicate findings merged for this report:"]
@@ -893,6 +1351,17 @@ def render_report_markdown(
     else:
         lines.append("| - | - | - | - | No confirmed findings recorded. | - | 0 |")
 
+    lines += ["", "## Assessment Coverage", ""]
+    if coverage:
+        lines += ["| Module | Status | Reason / limitation |", "|---|---|---|"]
+        for item in coverage:
+            lines.append(
+                f"| {md_cell(item.get('module'))} | {md_cell(item.get('status'))} | "
+                f"{md_cell(item.get('reason') or item.get('notes'))} |"
+            )
+    else:
+        lines.append("No module coverage was recorded. This report must be treated as incomplete.")
+
     lines += ["", "## Findings", ""]
     if not confirmed:
         lines.append("No confirmed findings recorded.")
@@ -911,7 +1380,9 @@ def render_report_markdown(
             lines.append(f"**Merged Duplicate Records:** {', '.join(item.get('merged_duplicate_ids', []))}")
         if item.get("cvss"):
             lines.append(f"**CVSS:** {item.get('cvss')}")
-        mappings = ", ".join(part for part in [item.get("owasp"), item.get("cwe"), item.get("wstg_id")] if part)
+        mappings = ", ".join(
+            part for part in [item.get("owasp"), item.get("cwe"), item.get("wstg_id"), item.get("asvs")] if part
+        )
         if mappings:
             lines.append(f"**Mappings:** {mappings}")
         asset = item.get("affected_asset") or {}
@@ -966,6 +1437,18 @@ def render_report_markdown(
         if item.get("exploitability"):
             lines += ["#### Exploitability Conditions", "", item.get("exploitability", ""), ""]
 
+    lines += ["## Remediation Roadmap", ""]
+    if confirmed:
+        lines += ["| Priority | Finding | Module | Recommended action |", "|---|---|---|---|"]
+        for item in sorted(confirmed, key=lambda value: (priority_rank(value.get("priority")), finding_sort_key(value))):
+            lines.append(
+                f"| {item.get('priority') or '-'} | {item.get('id', '?')}: {md_cell(item.get('title'))} | "
+                f"{md_cell(item.get('module'))} | {md_cell(item.get('remediation'))} |"
+            )
+    else:
+        lines.append("No confirmed-finding remediation actions were recorded.")
+    lines.append("")
+
     if non_confirmed:
         lines += ["## Leads and Draft Findings", ""]
         for item in sorted(non_confirmed, key=finding_sort_key):
@@ -978,12 +1461,14 @@ def render_report_markdown(
             lines.append(f"- [{item.get('id', '?')}] {item.get('task', '')} ({item.get('module', '')})")
         lines.append("")
 
-    lines += ["## Evidence Index", ""]
+    lines += ["## Evidence Integrity Index", ""]
     if evidence_items:
-        lines += ["| ID | Kind | Finding | Module | Title | Path |", "|---|---|---|---|---|---|"]
+        integrity_by_id = {item["id"]: item for item in integrity_results}
+        lines += ["| ID | Integrity | Redaction | Kind | Finding | Module | Title | Path |", "|---|---|---|---|---|---|---|---|"]
         for item in evidence_items:
             lines.append(
-                f"| {item.get('id', '')} | {md_cell(item.get('kind'))} | {item.get('finding_id', '')} | "
+                f"| {item.get('id', '')} | {integrity_by_id.get(item.get('id'), {}).get('status', 'unknown')} | "
+                f"{item.get('redaction', 'legacy')} | {md_cell(item.get('kind'))} | {item.get('finding_id', '')} | "
                 f"{md_cell(item.get('module'))} | {md_cell(item.get('title'))} | `{item.get('path', '')}` |"
             )
     else:
@@ -1012,22 +1497,45 @@ def command_report_generate(args: argparse.Namespace) -> int:
     todos = load_records(root, "todos.json")
     evidence = evidence_lookup(root)
     artifacts = artifact_lookup(root)
+    coverage = load_records(root, "coverage.json")
     reports = load_records(root, "reports.json")
+    readiness_issues = report_readiness(root, findings, todos, evidence, coverage)
+    if readiness_issues and not args.allow_incomplete:
+        details = "\n".join(f"- {issue}" for issue in readiness_issues)
+        die(
+            "report quality gate failed; resolve the following items or generate an explicit draft "
+            f"with --allow-incomplete:\n{details}"
+        )
+    delivery_status = "DRAFT - INCOMPLETE" if readiness_issues else "FINAL - QUALITY GATE PASSED"
     generated_at = utc_now()
     report_id = f"R-{len(reports) + 1:03d}"
     stem = f"report-{timestamp_slug()}"
     md_rel = f"reports/{stem}.md"
     json_rel = f"reports/{stem}.json"
-    markdown = render_report_markdown(root, report_id, generated_at, engagement, findings, todos, evidence, artifacts, deduplication)
+    markdown = render_report_markdown(
+        root,
+        report_id,
+        generated_at,
+        engagement,
+        findings,
+        todos,
+        evidence,
+        artifacts,
+        coverage,
+        readiness_issues,
+        delivery_status,
+        deduplication,
+    )
     (root / md_rel).write_text(markdown, encoding="utf-8")
 
     confirmed = [item for item in findings if item.get("status") == "confirmed"]
     pending = [item for item in todos if item.get("status") == "pending"]
-    readiness_issues = report_readiness(findings)
+    integrity_results = verify_evidence_records(root)
     report_json = {
         "schema_version": SCHEMA_VERSION,
         "id": report_id,
         "generated_at": generated_at,
+        "delivery_status": delivery_status,
         "engagement": engagement,
         "summary": {
             "confirmed_findings": len(confirmed),
@@ -1049,6 +1557,8 @@ def command_report_generate(args: argparse.Namespace) -> int:
             "issues": readiness_issues,
         },
         "deduplication": deduplication,
+        "coverage": coverage,
+        "evidence_integrity": integrity_results,
         "findings": findings,
         "evidence": list(evidence.values()),
         "artifacts": artifacts,
@@ -1063,13 +1573,38 @@ def command_report_generate(args: argparse.Namespace) -> int:
         "markdown": md_rel,
         "json": json_rel,
         "confirmed_findings": len(confirmed),
+        "delivery_status": delivery_status,
+        "quality_gate_passed": not readiness_issues,
     }
     reports.append(record)
     save_records(root, "reports.json", reports)
     append_activity(root, "report.generate", {"id": report_id, "markdown": md_rel, "json": json_rel})
+    print(f"delivery status: {delivery_status}")
     print(f"report generated: {root / md_rel}")
     print(f"report json generated: {root / json_rel}")
     return 0
+
+
+def command_report_validate(args: argparse.Namespace) -> int:
+    root = engagement_dir(args.dir)
+    require_v2_engagement(root)
+    ensure_layout(root)
+    raw_findings = load_records(root, "findings.json")
+    findings, _ = deduplicate_findings_for_report(raw_findings)
+    todos = load_records(root, "todos.json")
+    evidence = evidence_lookup(root)
+    coverage = load_records(root, "coverage.json")
+    issues = report_readiness(root, findings, todos, evidence, coverage)
+    result = {"passed": not issues, "issues": issues}
+    if args.json:
+        print(json.dumps(result, indent=2))
+    elif issues:
+        print("Report quality gate: FAILED")
+        for issue in issues:
+            print(f"- {issue}")
+    else:
+        print("Report quality gate: PASSED")
+    return 0 if not issues else 1
 
 
 def command_report_list(args: argparse.Namespace) -> int:
@@ -1077,7 +1612,10 @@ def command_report_list(args: argparse.Namespace) -> int:
     require_v2_engagement(root)
     reports = load_records(root, "reports.json")
     for item in reports:
-        print(f"[{item.get('id', '?')}] {item.get('generated_at', '')} {item.get('markdown', '')} {item.get('json', '')}")
+        print(
+            f"[{item.get('id', '?')}] {item.get('delivery_status', 'legacy')} "
+            f"{item.get('generated_at', '')} {item.get('markdown', '')} {item.get('json', '')}"
+        )
     print(f"Total: {len(reports)}")
     return 0
 
@@ -1105,11 +1643,17 @@ def build_parser() -> argparse.ArgumentParser:
     evidence_add.add_argument("--role")
     evidence_add.add_argument("--command")
     evidence_add.add_argument("--notes")
+    evidence_add.add_argument("--redaction", choices=["raw", "redacted", "sanitized"], default="raw")
     evidence_add.set_defaults(func=command_evidence_add)
 
     evidence_list = sub.add_parser("evidence-list")
     evidence_list.add_argument("--dir", required=True)
     evidence_list.set_defaults(func=command_evidence_list)
+
+    evidence_verify = sub.add_parser("evidence-verify")
+    evidence_verify.add_argument("--dir", required=True)
+    evidence_verify.add_argument("--json", action="store_true")
+    evidence_verify.set_defaults(func=command_evidence_verify)
 
     artifact_add = sub.add_parser("artifact-add")
     artifact_add.add_argument("--dir", required=True)
@@ -1151,6 +1695,7 @@ def build_parser() -> argparse.ArgumentParser:
     finding_add.add_argument("--owasp")
     finding_add.add_argument("--cwe")
     finding_add.add_argument("--wstg")
+    finding_add.add_argument("--asvs")
     finding_add.add_argument("--reference", action="append")
     finding_add.add_argument("--notes")
     finding_add.set_defaults(func=command_finding_add)
@@ -1182,9 +1727,41 @@ def build_parser() -> argparse.ArgumentParser:
     todo_update.add_argument("--notes")
     todo_update.set_defaults(func=command_todo_update)
 
+    coverage_set = sub.add_parser("coverage-set")
+    coverage_set.add_argument("--dir", required=True)
+    coverage_set.add_argument("--module", required=True)
+    coverage_set.add_argument("--status", required=True)
+    coverage_set.add_argument("--reason")
+    coverage_set.add_argument("--notes")
+    coverage_set.set_defaults(func=command_coverage_set)
+
+    coverage_list = sub.add_parser("coverage-list")
+    coverage_list.add_argument("--dir", required=True)
+    coverage_list.add_argument("--json", action="store_true")
+    coverage_list.set_defaults(func=command_coverage_list)
+
+    context_show = sub.add_parser("context-show")
+    context_show.add_argument("--dir", required=True)
+    context_show.add_argument("--json", action="store_true")
+    context_show.add_argument("--refresh", action="store_true")
+    context_show.add_argument("--max-items", type=int, default=5)
+    context_show.set_defaults(func=command_context_show)
+
+    cache_status = sub.add_parser("cache-status")
+    cache_status.add_argument("--dir", required=True)
+    cache_status.add_argument("--state-root")
+    cache_status.add_argument("--json", action="store_true")
+    cache_status.set_defaults(func=command_cache_status)
+
     report_generate = sub.add_parser("report-generate")
     report_generate.add_argument("--dir", required=True)
+    report_generate.add_argument("--allow-incomplete", action="store_true")
     report_generate.set_defaults(func=command_report_generate)
+
+    report_validate = sub.add_parser("report-validate")
+    report_validate.add_argument("--dir", required=True)
+    report_validate.add_argument("--json", action="store_true")
+    report_validate.set_defaults(func=command_report_validate)
 
     report_list = sub.add_parser("report-list")
     report_list.add_argument("--dir", required=True)

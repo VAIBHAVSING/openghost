@@ -2,6 +2,20 @@
 
 Covers: SQL injection, second-order SQLi, XSS, SSRF, SSTI, XXE/XML injection, NoSQL injection, API injection, insecure deserialization, directory traversal/LFI/RFI, host header injection, email header injection, prototype pollution, type juggling, command injection indicators, LDAP/XPath injection, and parser abuse.
 
+## Contents
+
+- Goals and input inventory
+- SQL injection and XSS
+- SSRF, SSTI, XXE/XML, and NoSQL injection
+- Command, LDAP, and XPath injection
+- File upload, parser abuse, and insecure deserialization
+- Traversal, host header, prototype pollution, email header, and type juggling
+- Reporting checklist
+
+## Execution Gate
+
+Begin with inert markers and differential behavior. Payload execution, out-of-band callbacks, file processing, server-side requests, parser expansion, command effects, and data access require the corresponding active-test gate and the smallest non-destructive proof. Never dump a database or retrieve bulk data.
+
 ## Goals
 
 - Identify all trust boundaries where attacker-controlled input reaches interpreters, parsers, templates, URLs, files, commands, databases, or browser sinks.

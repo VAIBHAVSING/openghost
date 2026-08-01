@@ -2,6 +2,18 @@
 
 Covers: business logic flaws, workflow bypass, price/quantity/currency manipulation, coupon/reward abuse, race conditions, rate-limit bypass, authorization gaps between workflow states, replay, stale token use, and feature abuse.
 
+## Contents
+
+- Goals and workflow mapping
+- Price, quantity, currency, coupon, reward, and credit abuse
+- Workflow bypass and state transitions
+- Race conditions and rate-limit bypass
+- Reporting and severity
+
+## Execution Gate
+
+Map invariants before changing state. Payment, credit, coupon, invitation, approval, quota, replay, and race tests require explicit write/race allowances, disposable records, request caps, monitoring, and a cleanup path.
+
 ## Goals
 
 - Understand intended business invariants before testing.

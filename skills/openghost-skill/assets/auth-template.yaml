@@ -16,7 +16,8 @@ roles:
     username_env: OPENGHOST_ADMIN_USERNAME
     password_env: OPENGHOST_ADMIN_PASSWORD
 tokens:
-  bearer_env: OPENGHOST_BEARER_TOKEN
+  # Optional credential for the authorized target application; OpenGhost has no service token.
+  bearer_env: OPENGHOST_TARGET_BEARER_TOKEN
   api_key_header: X-API-Key
   api_key_env: OPENGHOST_API_KEY
 cookies:

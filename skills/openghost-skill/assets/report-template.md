@@ -5,6 +5,7 @@
 **Test Window:** <dates>
 **Prepared For:** <client/team>
 **Prepared By:** <tester/team>
+**Delivery Status:** <FINAL - QUALITY GATE PASSED|DRAFT - INCOMPLETE>
 
 ## Executive Summary
 
@@ -21,6 +22,12 @@
 ## Methodology
 
 <Summarize modules executed: surface mapping, server integrity, session/auth, access control, injection, API protocols, browser policy, HTTP edge, business logic.>
+
+## Assessment Coverage
+
+| Module | Status | Reason / Limitation |
+|---|---|---|
+| access-control | tested | <coverage summary> |
 
 ## Risk Triage Method
 
@@ -40,6 +47,10 @@
 
 <Likely or draft findings that are not confirmed and need more validation.>
 
+## Remediation Roadmap
+
+<Group fixes by root cause and owner. Link each action to affected finding IDs, compensating controls, and suggested validation.>
+
 ## Positive Security Observations
 
 <Controls that worked well, such as strict authorization, hardened cookies, or strong CSP.>
@@ -58,4 +69,4 @@
 
 ## Appendix
 
-<Tool versions, structured evidence index, artifact index, endpoint inventory, scope file, and raw evidence references.>
+<Tool versions, evidence integrity and redaction index, artifact index, endpoint inventory, scope file, and raw evidence references.>

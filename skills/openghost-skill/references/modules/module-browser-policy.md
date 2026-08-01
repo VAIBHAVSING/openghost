@@ -2,6 +2,18 @@
 
 Covers: CORS misconfiguration, CSP bypass, clickjacking, security headers, cookie attributes, browser isolation headers, referrer leakage, permissions policy, MIME sniffing, and browser-context validation with Playwright/headless Chromium.
 
+## Contents
+
+- Goals
+- CORS and CSP
+- Clickjacking and security headers
+- Cookie audit and referrer leakage
+- Browser validation and reporting
+
+## Execution Gate
+
+Use test accounts and approved origins. Keep browser proof bounded to the scoped application; do not expose target credentials to third-party pages or retain unredacted session data in screenshots, traces, or HAR files.
+
 ## Goals
 
 - Identify browser-enforced controls that are missing, weak, or bypassable.

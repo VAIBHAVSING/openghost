@@ -1,6 +1,7 @@
 engagement_id: example-webapp-pentest
 target_url: https://example.com
 authorization:
+  reviewed: false
   sponsor: security@example.com
   authorization_document: contract-or-ticket-id
   test_window: 2026-01-01T00:00:00Z/2026-01-07T23:59:59Z
@@ -11,6 +12,9 @@ authorization:
 allowed_hosts:
   - example.com
   - "*.example.com"
+allowed_ports:
+  - 80
+  - 443
 exclusions:
   paths:
     - /logout
@@ -20,6 +24,8 @@ rate_limits:
   requests_per_second: 5
   max_concurrent_requests: 3
 active_testing:
+  content_discovery: false
+  reflected_marker_probes: false
   zap_active_scan: false
   stateful_api_fuzzing: false
   race_tests: false

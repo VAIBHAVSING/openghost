@@ -2,6 +2,18 @@
 
 Covers: TLS/SSL assessment, certificate validation, HTTP security headers, cookie attributes, server information disclosure, exposed management endpoints, backup/config leaks, DNS hygiene, default credentials, and application/platform configuration risks.
 
+## Contents
+
+- Goals
+- TLS, headers, and cookie integrity
+- Information disclosure and management interfaces
+- Default credentials and DNS integrity
+- Container/dependency exposure, severity, and reporting
+
+## Execution Gate
+
+Prefer passive configuration and version evidence. Port scans, content discovery, credential checks, management interfaces, and dependency validation must stay within allowed hosts, ports, request limits, and test windows; do not attempt broad password attacks.
+
 ## Goals
 
 - Identify server and deployment weaknesses that increase exploitability or expose sensitive data.

@@ -1,0 +1,43 @@
+name: Validate skill
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate shell syntax
+        run: |
+          bash -n openghost
+          bash -n skills/openghost
+          bash -n skills/openghost-skill/openghost
+          bash -n skills/openghost-skill/scripts/openghost.sh
+          bash -n skills/openghost-skill/scripts/verify-toolchain.sh
+
+      - name: Validate Python syntax
+        run: |
+          python3 -m compileall -q skills/openghost-skill/scripts
+
+      - name: Validate skill references
+        run: |
+          python3 skills/openghost-skill/scripts/check-references.py
+
+      - name: Run deterministic helper tests
+        run: |
+          python3 -m unittest discover -s tests -v
+
+      - name: Reject generated engagement state
+        run: |
+          if git ls-files '.openghost/**' | grep -q .; then
+            echo 'Generated .openghost engagement state must not be committed.' >&2
+            exit 1
+          fi

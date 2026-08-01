@@ -38,7 +38,12 @@ Python changes:
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/openghost-pycache python3 -m py_compile \
   skills/openghost-skill/scripts/select-modules.py \
-  skills/openghost-skill/scripts/openghost-state.py
+  skills/openghost-skill/scripts/scope_utils.py \
+  skills/openghost-skill/scripts/openghost-assess.py \
+  skills/openghost-skill/scripts/openghost-state.py \
+  skills/openghost-skill/scripts/check-references.py
+PYTHONPYCACHEPREFIX=/tmp/openghost-pycache python3 -m unittest discover -s tests -v
+python3 skills/openghost-skill/scripts/check-references.py
 rm -rf /tmp/openghost-pycache
 ```
 
@@ -108,7 +113,7 @@ OPENGHOST_BUILD=1 OPENGHOST_IMAGE=openghost-sandbox:dev ./openghost sandbox upda
 1. Add module guidance under `skills/openghost-skill/references/modules/`.
 2. Keep the module focused on one assessment area.
 3. Link it from `SKILL.md` only where agents need to discover it.
-4. Update `skills/openghost-skill/references/module-map.md` when module
+4. Update `skills/openghost-skill/references/modules/module-map.md` when module
    selection changes.
 5. Update `skills/openghost-skill/scripts/select-modules.py` when automatic
    selection should include the module.

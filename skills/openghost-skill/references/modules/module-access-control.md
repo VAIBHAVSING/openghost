@@ -2,6 +2,19 @@
 
 Covers: IDOR, BOLA, BFLA, BOPLA, mass assignment, excessive data exposure, sensitive data exposure, open redirect, forced browsing, multi-tenant isolation, role transitions, and method/path authorization bypasses.
 
+## Contents
+
+- Goals and required auth context
+- Object reference mapping and IDOR/BOLA
+- BFLA, BOPLA, and mass assignment
+- Excessive data exposure and open redirect
+- Forced browsing and multi-tenant isolation
+- Authorization matrix and reporting checklist
+
+## Execution Gate
+
+Use only authorized test identities and seeded objects. Read operations still require role/tenant limits; writes, mass assignment, forced browsing, and workflow transitions require their applicable scope gates and cleanup plan. Never use another customer's real object as proof.
+
 ## Goals
 
 - Verify authorization on every object, function, and property.
@@ -48,7 +61,8 @@ BOLA is authorization failure at the object level. Every object access must enfo
 Template helper:
 
 ```bash
-openghost script run bola-check -- --base-url https://<target> --token <USER_A_TOKEN> --endpoints '/api/orders/{id}' --ids <USER_B_OBJECT_ID>
+OPENGHOST_TARGET_BEARER_TOKEN='<user-a-target-token>' \
+  openghost script run bola-check -- --base-url https://<target> --endpoints '/api/orders/{id}' --ids <USER_B_OBJECT_ID>
 ```
 
 ### Test Pattern
@@ -129,7 +143,9 @@ Template helper:
 
 ```bash
 openghost script copy mass-assignment-check
-openghost python file .openghost/engagements/<name>/scripts/mass_assignment_check.py -- --base-url https://<target> --token <TOKEN> --endpoint /api/users/me --confirm-write
+OPENGHOST_TARGET_BEARER_TOKEN='<target-app-token>' \
+  openghost python file .openghost/engagements/<name>/scripts/mass_assignment_check.py -- \
+  --base-url https://<target> --endpoint /api/users/me --confirm-write
 ```
 
 ### Test Pattern

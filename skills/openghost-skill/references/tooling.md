@@ -2,6 +2,16 @@
 
 The agent-facing interface is `openghost`. The launcher starts a Docker sandbox and executes every tool inside that container. Do not run offensive tooling directly on the host.
 
+The host requires Docker, Python 3, and Bash 4.3 or newer. On macOS, install a current Bash rather than using the system Bash 3.x.
+
+## Contents
+
+- Sandbox and execution commands
+- Engagement, assessment, script, coverage, context, and report commands
+- Environment and storage layout
+- Installed tools and wordlists
+- Command patterns and raw Bash guidance
+
 Before the first command, make sure the launcher directory is on `PATH`:
 
 ```bash
@@ -23,6 +33,12 @@ openghost sandbox shell
 ```
 
 The launcher pulls `ghcr.io/vaibhavsing/openghost-sandbox:latest` by default when the image is missing. Set `OPENGHOST_IMAGE` to override the image. Normal skill users should not build a Dockerfile locally; maintainers build and publish the sandbox from the repo's Docker context.
+
+For a reproducible or high-assurance engagement, set `OPENGHOST_IMAGE` to an immutable published digest (`ghcr.io/.../openghost-sandbox@sha256:<digest>`) recorded in the engagement notes. Published images include provenance and SBOM attestations.
+
+The sandbox drops capabilities except the network capabilities required by included tools and defaults to 4 GiB memory, 2 CPUs, and 512 processes. Override those limits with `OPENGHOST_SANDBOX_MEMORY`, `OPENGHOST_SANDBOX_CPUS`, and `OPENGHOST_SANDBOX_PIDS`. Access to `host.docker.internal` is disabled by default; set `OPENGHOST_ALLOW_HOST_GATEWAY=1` only when the authorized target runs on the host.
+
+The workspace is mounted read-only by default, with only `.openghost/` mounted read-write for generated engagement data. Set `OPENGHOST_WORKSPACE_WRITE=1` only for an explicitly authorized workflow that must write elsewhere in the workspace.
 
 ## Execution Commands
 
@@ -55,8 +71,9 @@ openghost exec-python '<SCRIPT>'
 
 ```bash
 openghost engagement init --url <TARGET_URL> --name <name>
-openghost evidence add --path <file> --kind <request|response|screenshot|tool-output|transcript> --title <title>
+openghost evidence add --path <file> --kind <request|response|screenshot|tool-output|transcript> --title <title> --redaction <raw|redacted|sanitized>
 openghost evidence list
+openghost evidence verify
 openghost artifact add --path <file> --kind <inventory|auth|tools|scripts|browser|packages> --title <title>
 openghost artifact list
 openghost finding add --title <title> --severity <severity> --module <module> --url <url> --confidence <90-100> --priority <P0-P4> --priority-rationale <text> --evidence E-001 --step <step>
@@ -64,6 +81,10 @@ openghost finding list
 openghost todo add --task <task> --module <module> --priority <priority>
 openghost todo list
 openghost todo update --id <id> --status <status>
+openghost coverage set --module <module> --status <planned|in-progress|tested|partial|skipped|not-applicable>
+openghost coverage list
+openghost context show
+openghost report validate
 openghost report generate
 openghost report list
 ```
@@ -77,7 +98,7 @@ openghost assess plan --target-url https://<target> --mode standard
 openghost assess run --target-url https://<target> --confirm-scope-reviewed --mode standard
 ```
 
-`assess run` executes safe bundled templates, registers raw JSON outputs as evidence, creates `likely` findings for medium-or-higher signals, adds validation todos, and writes `runs/assess-<timestamp>/assessment.json`. It never creates confirmed findings. See `references/autonomous-assessment.md` before changing mode, tokens, endpoints, or request caps.
+`assess run` executes safe bundled templates, registers raw JSON outputs as evidence, creates `likely` findings for medium-or-higher signals, adds validation todos, and writes `runs/assess-<timestamp>/assessment.json`. Matching anonymous results are cached locally for one hour by default. It never creates confirmed findings. See `references/autonomous-assessment.md` and `references/caching.md` before changing modes, target-app credentials, endpoints, request caps, or cache policy.
 
 ## Pentest Script Templates
 
@@ -88,7 +109,9 @@ openghost script list
 openghost script show xss-check
 openghost script run web-baseline -- --target-url https://<target>
 openghost script copy bola-check
-openghost python file .openghost/engagements/<name>/scripts/bola_check.py -- --base-url https://<target> --token <TOKEN> --endpoints '/api/orders/{id}' --ids 1001,1002
+OPENGHOST_TARGET_BEARER_TOKEN='<target-app-token>' \
+  openghost python file .openghost/engagements/<name>/scripts/bola_check.py -- \
+  --base-url https://<target> --endpoints '/api/orders/{id}' --ids 1001,1002
 ```
 
 Use `script run` for an unchanged stock template. Use `script copy` before changing logic for a target; copied files and `og_pentest.py` are placed in the active engagement `scripts/` directory. Template findings are signals requiring manual validation before `openghost finding add`.
@@ -110,6 +133,11 @@ export OPENGHOST_CONTAINER=openghost-sandbox
 export OPENGHOST_WORKSPACE="$PWD"
 export OPENGHOST_HOME="$PWD/.openghost"
 export OPENGHOST_SCOPE=.openghost/engagements/<name>/scope.yaml
+# Optional target-application credential; OpenGhost itself has no service token:
+# export OPENGHOST_TARGET_BEARER_TOKEN='<target-app-token>'
+# Higher-risk opt-ins remain unset unless explicitly required:
+# export OPENGHOST_ALLOW_HOST_GATEWAY=1
+# export OPENGHOST_WORKSPACE_WRITE=1
 ```
 
 Developer-only local image builds are explicit opt-in:
@@ -129,6 +157,7 @@ OPENGHOST_BUILD=1 \
   config.json
   current
   cache/
+    scripts/<name>/<content-sha256>/
   tmp/
   engagements/<name>/
     engagement.json
@@ -139,7 +168,11 @@ OPENGHOST_BUILD=1 \
       evidence.json
       artifacts.json
       todos.json
+      coverage.json
       reports.json
+    cache/
+      assessment/
+      context/
       activity.jsonl
     notes/
     evidence/
@@ -255,13 +288,15 @@ openghost evidence add --path /tmp/users-1.txt --kind response --title "GET /api
 ### Authenticated Curl
 
 ```bash
-openghost bash 'curl -s -i -H "Authorization: Bearer <TOKEN>" https://<target>/api/me'
+OPENGHOST_TARGET_BEARER_TOKEN='<target-app-token>' \
+  openghost bash 'curl -s -i -H "Authorization: Bearer ${OPENGHOST_TARGET_BEARER_TOKEN}" https://<target>/api/me'
 ```
 
 ### JSON Request
 
 ```bash
-openghost bash 'curl -s -i -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d "{\"name\":\"test\"}" https://<target>/api/profile'
+OPENGHOST_TARGET_BEARER_TOKEN='<target-app-token>' \
+  openghost bash 'curl -s -i -X POST -H "Content-Type: application/json" -H "Authorization: Bearer ${OPENGHOST_TARGET_BEARER_TOKEN}" -d "{\"name\":\"test\"}" https://<target>/api/profile'
 ```
 
 ### Browser Script

@@ -8,7 +8,7 @@
 **Affected Asset:** <url, host, endpoint, parameter, object, or role>
 **Module:** <surface-map|server-integrity|session-auth|access-control|injection|api-protocols|browser-policy|http-edge|business-logic>
 **Role/Context:** <unauthenticated|user_a|user_b|admin|tenant_a|tenant_b>
-**OWASP/CWE:** <mapping>
+**Mappings:** <OWASP Top 10:2025, API Top 10:2023, WSTG-v42, ASVS-5.0.0, CWE as applicable>
 
 ## Summary
 
@@ -23,9 +23,9 @@
 
 ## Evidence
 
-| ID | Kind | Title | Path |
-|---|---|---|---|
-| E-001 | response | <title> | `evidence/F-001/response/E-001-...txt` |
+| ID | Integrity | Redaction | Kind | Title | Path |
+|---|---|---|---|---|---|
+| E-001 | valid | redacted | response | <title> | `evidence/F-001/response/E-001-...txt` |
 
 ## Reproduction
 
