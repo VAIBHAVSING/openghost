@@ -10,7 +10,9 @@ from pathlib import Path
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FILES = [SKILL_ROOT / "SKILL.md", *sorted((SKILL_ROOT / "references").rglob("*.md"))]
-ROOT_REFERENCE = re.compile(r"(?<![A-Za-z0-9_./-])((?:references|scripts|assets)/[A-Za-z0-9_./-]+)")
+# Canonical source paths are written as inline code. Requiring the backticks avoids
+# treating prose such as "relative scripts/forms" as a packaged skill reference.
+ROOT_REFERENCE = re.compile(r"`((?:references|scripts|assets)/[A-Za-z0-9_./-]+)`")
 MARKDOWN_LINK = re.compile(r"\[[^]]+\]\(([^)]+)\)")
 
 
